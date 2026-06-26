@@ -756,6 +756,111 @@ function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, 
 
   useEffect(() => { setBatchId(""); }, [selectedItemId]);
 
+  // Same-day correction state
+  const todayStr = () => new Date().toISOString().split("T")[0];
+  const canModifyJob = (j) => !!currentAdmin || j.date === todayStr();
+  const canModifyLeave = (lv) => !!currentAdmin || lv.date === todayStr();
+
+  const [editingJobId, setEditingJobId] = useState(null);
+  const [editJobDraft, setEditJobDraft] = useState({ startTime: "09:00", endTime: "18:00", workTypeId: "" });
+  const [editingLeaveId, setEditingLeaveId] = useState(null);
+  const [editLeaveDraft, setEditLeaveDraft] = useState({ startTime: "09:00", endTime: "13:00" });
+
+  const beginEditJob = (j) => {
+    setEditingJobId(j.id);
+    setEditJobDraft({ startTime: j.startTime, endTime: j.endTime || "18:00", workTypeId: j.workTypeId || "" });
+    setEditingLeaveId(null);
+  };
+
+  const saveJobEdit = () => {
+    const j = jobCards.find(x => x.id === editingJobId);
+    if (!j) return;
+    if (!canModifyJob(j)) return alert("Workers can correct only today's logs. Ask admin for older corrections.");
+    const s = getMinutesFromStr(editJobDraft.startTime);
+    const e = getMinutesFromStr(editJobDraft.endTime);
+    if (e <= s) return alert("Out-clock must follow in-clock.");
+    if (s < 9 * 60 || e > 21 * 60) return alert("Shift window: 09:00 – 21:00 only.");
+    const emp = employees.find(x => x.id === j.employeeId);
+    const cap = (emp?.role === "Supervisor" || emp?.allowMultiJob) ? 2 : 1;
+    const overlap = jobCards.filter(other => {
+      if (other.id === j.id || other.employeeId !== j.employeeId || other.date !== j.date) return false;
+      if (!other.endTime) return false;
+      return s < getMinutesFromStr(other.endTime) && e > getMinutesFromStr(other.startTime);
+    }).length;
+    if (overlap >= cap) return alert("Collision with another job entry.");
+    const leaveOverlap = leaves.some(lv => {
+      if (lv.employeeId !== j.employeeId || lv.date !== j.date) return false;
+      return s < getMinutesFromStr(lv.endTime || "21:00") && e > getMinutesFromStr(lv.startTime);
+    });
+    if (leaveOverlap) return alert("Collision with a leave window.");
+    const mins = calculateNetMinutes(editJobDraft.startTime, editJobDraft.endTime);
+    const wt = workTypes.find(w => w.id === editJobDraft.workTypeId);
+    setJobCards(prev => prev.map(x => x.id === j.id ? {
+      ...x,
+      startTime: editJobDraft.startTime,
+      endTime: editJobDraft.endTime,
+      durationMinutes: mins,
+      calculatedCost: calculateJobCost(emp?.dailyWage || 600, mins),
+      workTypeId: editJobDraft.workTypeId || x.workTypeId,
+      workType: wt ? wt.name : x.workType,
+      isCorrected: !!currentAdmin ? true : x.isCorrected,
+      lastEditedAt: new Date().toISOString(),
+      lastEditedBy: currentAdmin ? "admin" : "worker",
+    } : x));
+    setEditingJobId(null);
+  };
+
+  const deleteJob = (j) => {
+    if (!canModifyJob(j)) return alert("Workers can delete only today's logs.");
+    if (!window.confirm("Delete this entry? This cannot be undone.")) return;
+    setJobCards(jobCards.filter(x => x.id !== j.id));
+  };
+
+  const beginEditLeave = (lv) => {
+    setEditingLeaveId(lv.id);
+    setEditLeaveDraft({ startTime: lv.startTime, endTime: lv.endTime });
+    setEditingJobId(null);
+  };
+
+  const saveLeaveEdit = () => {
+    const lv = leaves.find(x => x.id === editingLeaveId);
+    if (!lv) return;
+    if (!canModifyLeave(lv)) return alert("Workers can correct only today's leaves.");
+    const s = getMinutesFromStr(editLeaveDraft.startTime);
+    const e = getMinutesFromStr(editLeaveDraft.endTime);
+    if (e <= s) return alert("Leave end must follow start.");
+    const collision = jobCards.some(j => {
+      if (j.employeeId !== lv.employeeId || j.date !== lv.date) return false;
+      if (!j.endTime) return false;
+      return s < getMinutesFromStr(j.endTime) && e > getMinutesFromStr(j.startTime);
+    });
+    if (collision) return alert("Conflicts with a logged job.");
+    const net = calculateNetMinutes(editLeaveDraft.startTime, editLeaveDraft.endTime);
+    setLeaves(prev => prev.map(x => x.id === lv.id ? {
+      ...x,
+      startTime: editLeaveDraft.startTime,
+      endTime: editLeaveDraft.endTime,
+      durationMinutes: net,
+      leaveType: classifyLeaveType(net),
+      isCorrected: !!currentAdmin ? true : x.isCorrected,
+      lastEditedAt: new Date().toISOString(),
+      lastEditedBy: currentAdmin ? "admin" : "worker",
+    } : x));
+    setEditingLeaveId(null);
+  };
+
+  const deleteLeave = (lv) => {
+    if (!canModifyLeave(lv)) return alert("Workers can delete only today's leaves.");
+    if (!window.confirm("Delete this leave? This cannot be undone.")) return;
+    setLeaves(leaves.filter(x => x.id !== lv.id));
+  };
+
+  const discardOpenCard = (j) => {
+    if (!canModifyJob(j)) return alert("Same-day discard only.");
+    if (!window.confirm("Discard this unfinished card?")) return;
+    setJobCards(jobCards.filter(x => x.id !== j.id));
+  };
+
   const openCardsGlobal = jobCards.filter(j => !j.endTime);
   const dayJobsAll = targetOperative ? jobCards.filter(j => j.employeeId === targetOperative.id && j.date === activeDate) : [];
   const activeOpenCards = dayJobsAll.filter(j => !j.endTime);
@@ -1001,7 +1106,10 @@ function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, 
                   <Label dark={dark} className="!mb-0">Out-clock</Label>
                   <TimePicker value={manualEndTime} onChange={setManualEndTime} dark={dark} testid={`close-time-${oc.id}`} />
                 </div>
-                <Btn tone="danger" className="w-full" onClick={() => handleManualCloseJob(oc.id, manualEndTime)} testid={`close-card-${oc.id}`}><Lock size={14} /> Close card out</Btn>
+                <div className="grid grid-cols-3 gap-2">
+                  <Btn tone="danger" className="col-span-2" onClick={() => handleManualCloseJob(oc.id, manualEndTime)} testid={`close-card-${oc.id}`}><Lock size={14} /> Close card out</Btn>
+                  {canModifyJob(oc) && <Btn tone={dark ? "ghostDark" : "paper"} onClick={() => discardOpenCard(oc)} testid={`discard-card-${oc.id}`}><Trash2 size={14} /> Discard</Btn>}
+                </div>
               </div>
             ))}
 
@@ -1016,31 +1124,93 @@ function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, 
                     <th className="py-2">Timeline</th>
                     <th className="py-2 text-right">Duration</th>
                     {currentAdmin && <th className="py-2 text-right">Outlay</th>}
+                    <th className="py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${dark ? "divide-white/5" : "divide-[#E0DDD5]"}`}>
-                  {dayJobsAll.filter(j => j.endTime).map(j => (
+                  {dayJobsAll.filter(j => j.endTime).map(j => editingJobId === j.id ? (
+                    <tr key={j.id} className={dark ? "bg-[#E84824]/10" : "bg-[#0028A8]/5"} data-testid={`edit-job-row-${j.id}`}>
+                      <td colSpan={currentAdmin ? 6 : 5} className="py-3 px-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${dark ? "text-white/60" : "text-[#8A877E]"}`}>Correct:</span>
+                          {j.category === "Production" && (
+                            <FieldSelect dark={dark} value={editJobDraft.workTypeId} onChange={e => setEditJobDraft({ ...editJobDraft, workTypeId: e.target.value })} className="!w-auto min-w-[140px]" data-testid={`edit-job-wt-${j.id}`}>
+                              {workTypes.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                            </FieldSelect>
+                          )}
+                          <TimePicker value={editJobDraft.startTime} onChange={t => setEditJobDraft({ ...editJobDraft, startTime: t })} dark={dark} testid={`edit-job-start-${j.id}`} />
+                          <span className={`font-mono text-xs ${dark ? "text-white/40" : "text-[#8A877E]"}`}>→</span>
+                          <TimePicker value={editJobDraft.endTime} onChange={t => setEditJobDraft({ ...editJobDraft, endTime: t })} dark={dark} testid={`edit-job-end-${j.id}`} />
+                        </div>
+                      </td>
+                      <td className="py-3 text-right">
+                        <div className="flex gap-1.5 justify-end">
+                          <Btn tone={dark ? "blaze" : "primary"} onClick={saveJobEdit} className="!px-2.5 !py-1.5" testid={`edit-job-save-${j.id}`}><Save size={12} /></Btn>
+                          <Btn tone={dark ? "ghostDark" : "paper"} onClick={() => setEditingJobId(null)} className="!px-2.5 !py-1.5" testid={`edit-job-cancel-${j.id}`}><X size={12} /></Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
                     <tr key={j.id} className={dark ? "hover:bg-white/5" : "hover:bg-[#F4F3EF]"} data-testid={`log-row-${j.id}`}>
-                      <td className="py-3 font-display font-bold max-w-[200px] truncate">{j.productName || j.generalSubtype || j.rdDescription}</td>
+                      <td className="py-3 font-display font-bold max-w-[200px] truncate">
+                        <span>{j.productName || j.generalSubtype || j.rdDescription}</span>
+                        {j.isCorrected && <span className={`ml-2 inline-block align-middle text-[9px] font-mono font-bold px-1.5 py-0.5 ${dark ? "bg-[#E8A317]/20 text-[#E8A317]" : "bg-[#E8A317]/15 text-[#9b6c00]"}`}>⚠ CORRECTED</span>}
+                        {!j.isCorrected && j.lastEditedAt && <span className={`ml-2 inline-block align-middle text-[9px] font-mono font-bold px-1.5 py-0.5 ${dark ? "bg-white/10 text-white/70" : "bg-[#0028A8]/10 text-[#0028A8]"}`}>EDITED</span>}
+                      </td>
                       <td className={`py-3 font-mono text-xs ${dark ? "text-white/60" : "text-[#8A877E]"}`}>{j.batchNumber || j.category}</td>
                       <td className={`py-3 font-mono text-xs ${dark ? "text-white/80" : "text-[#0d0d0d]"}`}>{j.workType || "—"}</td>
                       <td className={`py-3 font-mono text-xs ${dark ? "text-white/80" : "text-[#0d0d0d]"}`}>{j.startTime} → {j.endTime}</td>
                       <td className="py-3 font-mono text-right font-bold">{(j.durationMinutes / 60).toFixed(1)}h <span className={`block text-[10px] font-normal ${dark ? "text-white/40" : "text-[#8A877E]"}`}>({j.durationMinutes}m)</span></td>
                       {currentAdmin && <td className="py-3 font-mono text-right font-black text-[#2E8540]">₹{j.calculatedCost?.toFixed(2)}</td>}
+                      <td className="py-3 text-right">
+                        {canModifyJob(j) ? (
+                          <div className="flex gap-1.5 justify-end">
+                            <Btn tone={dark ? "ghostDark" : "paper"} onClick={() => beginEditJob(j)} className="!px-2 !py-1" testid={`log-edit-${j.id}`}><Edit3 size={12} /></Btn>
+                            <Btn tone="danger" onClick={() => deleteJob(j)} className="!px-2 !py-1" testid={`log-delete-${j.id}`}><Trash2 size={12} /></Btn>
+                          </div>
+                        ) : <span className={`font-mono text-[10px] uppercase tracking-[0.15em] ${dark ? "text-white/30" : "text-[#8A877E]"}`}>locked</span>}
+                      </td>
                     </tr>
                   ))}
-                  {dayLeavesAll.map(lv => (
+                  {dayLeavesAll.map(lv => editingLeaveId === lv.id ? (
+                    <tr key={lv.id} className={dark ? "bg-[#E84824]/10" : "bg-[#0028A8]/5"} data-testid={`edit-leave-row-${lv.id}`}>
+                      <td colSpan={currentAdmin ? 6 : 5} className="py-3 px-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${dark ? "text-white/60" : "text-[#8A877E]"}`}>Correct leave:</span>
+                          <TimePicker value={editLeaveDraft.startTime} onChange={t => setEditLeaveDraft({ ...editLeaveDraft, startTime: t })} dark={dark} testid={`edit-leave-start-${lv.id}`} />
+                          <span className={`font-mono text-xs ${dark ? "text-white/40" : "text-[#8A877E]"}`}>→</span>
+                          <TimePicker value={editLeaveDraft.endTime} onChange={t => setEditLeaveDraft({ ...editLeaveDraft, endTime: t })} dark={dark} testid={`edit-leave-end-${lv.id}`} />
+                        </div>
+                      </td>
+                      <td className="py-3 text-right">
+                        <div className="flex gap-1.5 justify-end">
+                          <Btn tone={dark ? "blaze" : "primary"} onClick={saveLeaveEdit} className="!px-2.5 !py-1.5" testid={`edit-leave-save-${lv.id}`}><Save size={12} /></Btn>
+                          <Btn tone={dark ? "ghostDark" : "paper"} onClick={() => setEditingLeaveId(null)} className="!px-2.5 !py-1.5" testid={`edit-leave-cancel-${lv.id}`}><X size={12} /></Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
                     <tr key={lv.id} className={`${dark ? "bg-[#E84824]/10" : "bg-[#D93025]/5"} text-[#D93025]`} data-testid={`leave-row-${lv.id}`}>
-                      <td className="py-3 font-display font-bold italic">🛑 Operational leave</td>
+                      <td className="py-3 font-display font-bold italic">🛑 Operational leave
+                        {lv.isCorrected && <span className="ml-2 align-middle text-[9px] font-mono font-bold px-1.5 py-0.5 bg-[#E8A317]/20 text-[#9b6c00] not-italic">⚠ CORRECTED</span>}
+                      </td>
                       <td className="py-3 font-mono text-xs font-bold">{lv.leaveType}</td>
                       <td className="py-3 font-mono text-xs">—</td>
                       <td className="py-3 font-mono text-xs">{lv.startTime} → {lv.endTime || "21:00"}</td>
                       <td className="py-3 font-mono text-right font-bold">{(lv.durationMinutes / 60).toFixed(1)}h <span className="block text-[10px] font-normal opacity-60">({lv.durationMinutes}m)</span></td>
                       {currentAdmin && <td className={`py-3 text-right font-mono text-xs ${dark ? "text-white/40" : "text-[#8A877E]"}`}>— masked —</td>}
+                      <td className="py-3 text-right">
+                        {canModifyLeave(lv) ? (
+                          <div className="flex gap-1.5 justify-end">
+                            <Btn tone={dark ? "ghostDark" : "paper"} onClick={() => beginEditLeave(lv)} className="!px-2 !py-1" testid={`leave-edit-${lv.id}`}><Edit3 size={12} /></Btn>
+                            <Btn tone="danger" onClick={() => deleteLeave(lv)} className="!px-2 !py-1" testid={`leave-delete-${lv.id}`}><Trash2 size={12} /></Btn>
+                          </div>
+                        ) : <span className={`font-mono text-[10px] uppercase tracking-[0.15em] ${dark ? "text-white/30" : "text-[#8A877E]"}`}>locked</span>}
+                      </td>
                     </tr>
                   ))}
                   {dayJobsAll.filter(j => j.endTime).length === 0 && dayLeavesAll.length === 0 && (
-                    <tr><td colSpan={currentAdmin ? 6 : 5} className={`py-8 text-center font-mono text-xs italic ${dark ? "text-white/40" : "text-[#8A877E]"}`}>No confirmed entries on this date.</td></tr>
+                    <tr><td colSpan={currentAdmin ? 7 : 6} className={`py-8 text-center font-mono text-xs italic ${dark ? "text-white/40" : "text-[#8A877E]"}`}>No confirmed entries on this date.</td></tr>
                   )}
                 </tbody>
               </table>
