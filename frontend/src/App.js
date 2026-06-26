@@ -86,6 +86,25 @@ function calculateJobCost(dailyWage, durationMinutes) {
   const r = dailyWage / 11 / 60;
   return Math.round(durationMinutes * r * 100) / 100;
 }
+
+// Wage history helpers — supports time-banded wages so old entries always
+// keep the wage that was effective on the job's own date.
+function wageHistoryOf(emp) {
+  if (emp?.wageHistory && emp.wageHistory.length) return emp.wageHistory;
+  return [{ effectiveFrom: "2020-01-01", dailyWage: emp?.dailyWage ?? 600 }];
+}
+function getWageForDate(emp, dateStr) {
+  const hist = [...wageHistoryOf(emp)].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+  let applicable = hist[0].dailyWage;
+  for (const h of hist) {
+    if (h.effectiveFrom <= dateStr) applicable = h.dailyWage;
+    else break;
+  }
+  return applicable;
+}
+function getCurrentWage(emp) {
+  return getWageForDate(emp, new Date().toISOString().split("T")[0]);
+}
 function classifyLeaveType(n) {
   if (n >= 600) return "Full Day Leave";
   if (n >= 180 && n <= 420) return "Half Day Leave";
@@ -383,21 +402,47 @@ function EmployeesManagementView({ employees, setEmployees }) {
   const [pin, setPin] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState({});
+  const [wageOpenId, setWageOpenId] = useState(null);
+  const [newWageDate, setNewWageDate] = useState(TODAY);
+  const [newWageAmount, setNewWageAmount] = useState(0);
 
   const addEmp = (e) => {
     e.preventDefault();
     if (pin.length !== 4) return alert("PIN must be exactly 4 digits.");
-    setEmployees([...employees, { id: "emp_" + Date.now(), name, dailyWage, role, allowMultiJob: role === "Supervisor" ? true : allowMultiJob, pin, active: true }]);
+    const wageHistory = [{ effectiveFrom: "2020-01-01", dailyWage: Number(dailyWage) }];
+    setEmployees([...employees, { id: "emp_" + Date.now(), name, dailyWage: Number(dailyWage), wageHistory, role, allowMultiJob: role === "Supervisor" ? true : allowMultiJob, pin, active: true }]);
     setName(""); setPin(""); setAllowMultiJob(false);
   };
-  const beginEdit = (e) => { setEditingId(e.id); setDraft({ ...e }); };
+  const beginEdit = (e) => { setEditingId(e.id); setDraft({ ...e }); setWageOpenId(null); };
   const saveEdit = () => {
     if (draft.pin.length !== 4) return alert("PIN must be 4 digits.");
-    setEmployees(employees.map(e => e.id === editingId ? { ...e, ...draft, dailyWage: Number(draft.dailyWage), allowMultiJob: draft.role === "Supervisor" ? true : !!draft.allowMultiJob } : e));
+    setEmployees(employees.map(e => e.id === editingId ? { ...e, name: draft.name, role: draft.role, pin: draft.pin, allowMultiJob: draft.role === "Supervisor" ? true : !!draft.allowMultiJob } : e));
     setEditingId(null);
   };
   const toggleActive = (id) => setEmployees(employees.map(e => e.id === id ? { ...e, active: !e.active } : e));
   const remove = (id) => { if (window.confirm("Remove this employee permanently?")) setEmployees(employees.filter(e => e.id !== id)); };
+
+  const addWageEntry = (empId) => {
+    if (!newWageDate || !newWageAmount) return alert("Enter both effective date and amount.");
+    const amount = Number(newWageAmount);
+    if (amount <= 0) return alert("Wage must be positive.");
+    setEmployees(employees.map(e => {
+      if (e.id !== empId) return e;
+      const hist = [...wageHistoryOf(e)].filter(h => h.effectiveFrom !== newWageDate);
+      hist.push({ effectiveFrom: newWageDate, dailyWage: amount });
+      hist.sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+      return { ...e, wageHistory: hist, dailyWage: getWageForDate({ wageHistory: hist }, new Date().toISOString().split("T")[0]) };
+    }));
+    setNewWageAmount(0);
+  };
+  const removeWageEntry = (empId, idx) => {
+    setEmployees(employees.map(e => {
+      if (e.id !== empId) return e;
+      const hist = wageHistoryOf(e).filter((_, i) => i !== idx);
+      const safeHist = hist.length ? hist : [{ effectiveFrom: "2020-01-01", dailyWage: e.dailyWage || 600 }];
+      return { ...e, wageHistory: safeHist, dailyWage: getWageForDate({ wageHistory: safeHist }, new Date().toISOString().split("T")[0]) };
+    }));
+  };
 
   return (
     <div className="space-y-8" data-testid="employees-view">
@@ -405,12 +450,15 @@ function EmployeesManagementView({ employees, setEmployees }) {
         <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[#8A877E]">Master data · staff</p>
         <h2 className="font-display font-black text-4xl tracking-tighter mt-2">Personnel matrix.</h2>
       </header>
+      <div className="border-l-2 border-[#0028A8] bg-[#0028A8]/5 px-4 py-3 font-mono text-xs text-[#0028A8]">
+        💡 Wages are time-banded. Click <strong>Wages</strong> on any row to add an effective-from entry — past job logs always keep the wage that was in force on their own date.
+      </div>
       <div className="grid xl:grid-cols-3 gap-6 items-start">
         <form onSubmit={addEmp} className="border border-[#E0DDD5] bg-white p-6 space-y-4" data-testid="employee-form">
           <h3 className="font-display font-bold text-lg tracking-tight border-b border-[#E0DDD5] pb-3">Register profile</h3>
           <div><Label>Full name</Label><FieldInput value={name} onChange={e => setName(e.target.value)} required placeholder="e.g. Ananya R" data-testid="emp-name-input" /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><Label>Daily wage (₹)</Label><FieldInput type="number" value={dailyWage} onChange={e => setDailyWage(Number(e.target.value))} required className="font-mono no-spin" data-testid="emp-wage-input" /></div>
+            <div><Label>Initial daily wage (₹)</Label><FieldInput type="number" value={dailyWage} onChange={e => setDailyWage(Number(e.target.value))} required className="font-mono no-spin" data-testid="emp-wage-input" /></div>
             <div><Label>Kiosk PIN</Label><FieldInput maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} required placeholder="0000" className="text-center font-mono tracking-[0.4em]" data-testid="emp-pin-input" /></div>
           </div>
           <div><Label>Designation</Label>
@@ -429,31 +477,65 @@ function EmployeesManagementView({ employees, setEmployees }) {
           <table className="w-full text-left">
             <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5]">
               <tr className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#8A877E]">
-                <th className="p-3">Name</th><th className="p-3">Role</th><th className="p-3 text-right">Wage</th><th className="p-3">PIN</th><th className="p-3">State</th><th className="p-3">Actions</th>
+                <th className="p-3">Name</th><th className="p-3">Role</th><th className="p-3 text-right">Current wage</th><th className="p-3">PIN</th><th className="p-3">State</th><th className="p-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E0DDD5]">
-              {employees.map(e => editingId === e.id ? (
-                <tr key={e.id} className="bg-[#0028A8]/5">
-                  <td className="p-3"><FieldInput value={draft.name} onChange={ev => setDraft({ ...draft, name: ev.target.value })} /></td>
-                  <td className="p-3"><FieldSelect value={draft.role} onChange={ev => setDraft({ ...draft, role: ev.target.value })}><option value="Worker">Worker</option><option value="Supervisor">Supervisor</option></FieldSelect></td>
-                  <td className="p-3"><FieldInput type="number" className="font-mono text-right no-spin" value={draft.dailyWage} onChange={ev => setDraft({ ...draft, dailyWage: ev.target.value })} /></td>
-                  <td className="p-3"><FieldInput maxLength={4} value={draft.pin} onChange={ev => setDraft({ ...draft, pin: ev.target.value.replace(/\D/g, "") })} className="font-mono text-center" /></td>
-                  <td className="p-3 font-mono text-xs">{e.active ? "Active" : "Inactive"}</td>
-                  <td className="p-3"><div className="flex gap-1.5"><Btn tone="primary" onClick={saveEdit} className="!px-2.5 !py-1.5"><Save size={12} /></Btn><Btn tone="paper" onClick={() => setEditingId(null)} className="!px-2.5 !py-1.5"><X size={12} /></Btn></div></td>
-                </tr>
-              ) : (
-                <tr key={e.id} className={`hover:bg-[#F4F3EF] transition-colors ${!e.active ? "opacity-50" : ""}`} data-testid={`emp-row-${e.id}`}>
-                  <td className="p-3 font-display font-bold">{e.name}</td>
-                  <td className="p-3"><Pill tone={e.role === "Supervisor" ? "primary" : "default"}>{e.role}</Pill></td>
-                  <td className="p-3 font-mono text-right font-bold">₹{e.dailyWage}</td>
-                  <td className="p-3 font-mono text-xs text-[#8A877E]">🔑 {e.pin}</td>
-                  <td className="p-3"><button onClick={() => toggleActive(e.id)} className="font-mono text-[10px] uppercase tracking-[0.2em] hover:text-[#E84824]" data-testid={`emp-toggle-${e.id}`}>{e.active ? "● Active" : "○ Inactive"}</button></td>
-                  <td className="p-3"><div className="flex gap-1.5">
-                    <Btn tone="paper" onClick={() => beginEdit(e)} className="!px-2.5 !py-1.5" testid={`emp-edit-${e.id}`}><Edit3 size={12} /></Btn>
-                    <Btn tone="danger" onClick={() => remove(e.id)} className="!px-2.5 !py-1.5" testid={`emp-delete-${e.id}`}><Trash2 size={12} /></Btn>
-                  </div></td>
-                </tr>
+              {employees.map(e => (
+                <React.Fragment key={e.id}>
+                  {editingId === e.id ? (
+                    <tr className="bg-[#0028A8]/5">
+                      <td className="p-3"><FieldInput value={draft.name} onChange={ev => setDraft({ ...draft, name: ev.target.value })} /></td>
+                      <td className="p-3"><FieldSelect value={draft.role} onChange={ev => setDraft({ ...draft, role: ev.target.value })}><option value="Worker">Worker</option><option value="Supervisor">Supervisor</option></FieldSelect></td>
+                      <td className="p-3 font-mono text-right text-xs text-[#8A877E] italic">use Wages →</td>
+                      <td className="p-3"><FieldInput maxLength={4} value={draft.pin} onChange={ev => setDraft({ ...draft, pin: ev.target.value.replace(/\D/g, "") })} className="font-mono text-center" /></td>
+                      <td className="p-3 font-mono text-xs">{e.active ? "Active" : "Inactive"}</td>
+                      <td className="p-3"><div className="flex gap-1.5"><Btn tone="primary" onClick={saveEdit} className="!px-2.5 !py-1.5"><Save size={12} /></Btn><Btn tone="paper" onClick={() => setEditingId(null)} className="!px-2.5 !py-1.5"><X size={12} /></Btn></div></td>
+                    </tr>
+                  ) : (
+                    <tr className={`hover:bg-[#F4F3EF] transition-colors ${!e.active ? "opacity-50" : ""}`} data-testid={`emp-row-${e.id}`}>
+                      <td className="p-3 font-display font-bold">{e.name}</td>
+                      <td className="p-3"><Pill tone={e.role === "Supervisor" ? "primary" : "default"}>{e.role}</Pill></td>
+                      <td className="p-3 font-mono text-right font-bold">₹{getCurrentWage(e)} <span className="text-[10px] text-[#8A877E] font-normal block">{wageHistoryOf(e).length} entr{wageHistoryOf(e).length === 1 ? "y" : "ies"}</span></td>
+                      <td className="p-3 font-mono text-xs text-[#8A877E]">🔑 {e.pin}</td>
+                      <td className="p-3"><button onClick={() => toggleActive(e.id)} className="font-mono text-[10px] uppercase tracking-[0.2em] hover:text-[#E84824]" data-testid={`emp-toggle-${e.id}`}>{e.active ? "● Active" : "○ Inactive"}</button></td>
+                      <td className="p-3"><div className="flex gap-1.5 flex-wrap">
+                        <Btn tone="paper" onClick={() => { setWageOpenId(wageOpenId === e.id ? null : e.id); setNewWageAmount(getCurrentWage(e)); }} className="!px-2.5 !py-1.5" testid={`emp-wages-${e.id}`}>Wages</Btn>
+                        <Btn tone="paper" onClick={() => beginEdit(e)} className="!px-2.5 !py-1.5" testid={`emp-edit-${e.id}`}><Edit3 size={12} /></Btn>
+                        <Btn tone="danger" onClick={() => remove(e.id)} className="!px-2.5 !py-1.5" testid={`emp-delete-${e.id}`}><Trash2 size={12} /></Btn>
+                      </div></td>
+                    </tr>
+                  )}
+                  {wageOpenId === e.id && (
+                    <tr className="bg-[#F4F3EF]" data-testid={`emp-wages-row-${e.id}`}>
+                      <td colSpan={6} className="p-4">
+                        <div className="flex flex-col lg:flex-row gap-4">
+                          <div className="lg:w-1/2">
+                            <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-[#8A877E] mb-2">Wage timeline</p>
+                            <div className="border border-[#E0DDD5] bg-white divide-y divide-[#E0DDD5]">
+                              {wageHistoryOf(e).map((h, idx) => (
+                                <div key={idx} className="flex items-center justify-between px-3 py-2">
+                                  <span className="font-mono text-xs">from <span className="font-bold text-[#0028A8]">{h.effectiveFrom}</span></span>
+                                  <span className="font-display font-black text-base">₹{h.dailyWage}</span>
+                                  <button onClick={() => removeWageEntry(e.id, idx)} className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#D93025] hover:underline" data-testid={`emp-wage-del-${e.id}-${idx}`}>Remove</button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="lg:w-1/2">
+                            <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-[#8A877E] mb-2">Schedule new effective wage</p>
+                            <div className="flex flex-wrap items-end gap-2 border border-[#E0DDD5] bg-white p-3">
+                              <div className="flex-1 min-w-[120px]"><Label>Effective from</Label><FieldInput type="date" value={newWageDate} onChange={ev => setNewWageDate(ev.target.value)} data-testid={`emp-wage-new-date-${e.id}`} /></div>
+                              <div className="flex-1 min-w-[100px]"><Label>New ₹/day</Label><FieldInput type="number" value={newWageAmount} onChange={ev => setNewWageAmount(ev.target.value)} className="font-mono no-spin" data-testid={`emp-wage-new-amount-${e.id}`} /></div>
+                              <Btn tone="primary" onClick={() => addWageEntry(e.id)} testid={`emp-wage-add-${e.id}`}><Plus size={12} /> Add</Btn>
+                            </div>
+                            <p className="font-mono text-[10px] text-[#8A877E] mt-2 leading-relaxed">Adding a same-date entry replaces it. Costs of past jobs already saved keep their stored value; future edits/recomputes use the wage applicable on each job&apos;s date.</p>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
@@ -698,35 +780,54 @@ function WorkTypesManagementView({ workTypes, setWorkTypes }) {
    10. ADMIN — CALENDAR / HOLIDAYS
 ============================================================================ */
 
-function CalendarControlsView({ holidays, setHolidays }) {
+function CalendarControlsView({ holidays, setHolidays, lockCutoffDate, setLockCutoffDate }) {
   const [date, setDate] = useState(TODAY);
   const [label, setLabel] = useState("");
+  const [draftCutoff, setDraftCutoff] = useState(lockCutoffDate || "");
+  useEffect(() => { setDraftCutoff(lockCutoffDate || ""); }, [lockCutoffDate]);
+
   return (
     <div className="space-y-8" data-testid="calendar-view">
       <header>
         <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[#8A877E]">Workshop calendar</p>
-        <h2 className="font-display font-black text-4xl tracking-tighter mt-2">Closures & holidays.</h2>
+        <h2 className="font-display font-black text-4xl tracking-tighter mt-2">Closures & locks.</h2>
       </header>
-      <div className="grid md:grid-cols-3 gap-6 items-start">
+
+      <div className="grid md:grid-cols-2 gap-6" data-testid="lock-cutoff-panel">
+        <div className="border border-[#0028A8] bg-[#0028A8]/5 p-6">
+          <div className="flex items-center justify-between">
+            <h3 className="font-display font-bold text-lg tracking-tight">Edit lock cutoff</h3>
+            {lockCutoffDate && <Pill tone="primary">ACTIVE</Pill>}
+          </div>
+          <p className="font-mono text-xs text-[#0028A8] mt-2">Any job log or leave dated on or before this date is locked — workers <em>and</em> admins-acting-as cannot edit or delete it, and no new entries can be back-dated into the locked range. Move the cutoff forward as payroll is finalised.</p>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <div><Label>Lock everything on or before</Label><FieldInput type="date" value={draftCutoff} onChange={e => setDraftCutoff(e.target.value)} className="font-mono" data-testid="lock-cutoff-input" /></div>
+            <Btn tone="primary" onClick={() => setLockCutoffDate(draftCutoff)} testid="lock-cutoff-apply"><Lock size={14} /> Apply lock</Btn>
+            {lockCutoffDate && <Btn tone="paper" onClick={() => setLockCutoffDate("")} testid="lock-cutoff-clear"><X size={14} /> Clear lock</Btn>}
+          </div>
+          {lockCutoffDate && <p className="font-mono text-[11px] text-[#0028A8] mt-3">Currently locked: <span className="font-bold">≤ {lockCutoffDate}</span></p>}
+        </div>
+
         <form onSubmit={(e) => { e.preventDefault(); setHolidays([...holidays, { id: "hol_" + Date.now(), date, label }]); setLabel(""); }} className="border border-[#E0DDD5] bg-white p-6 space-y-4" data-testid="holiday-form">
           <h3 className="font-display font-bold text-lg tracking-tight border-b border-[#E0DDD5] pb-3">Declare closure</h3>
           <div><Label>Target date</Label><FieldInput type="date" value={date} onChange={e => setDate(e.target.value)} required data-testid="hol-date-input" /></div>
           <div><Label>Label</Label><FieldInput value={label} onChange={e => setLabel(e.target.value)} required placeholder="e.g. Festival closure" data-testid="hol-label-input" /></div>
           <Btn type="submit" tone="ink" className="w-full" testid="hol-submit"><CalendarDays size={14} /> Commit closure</Btn>
         </form>
-        <div className="md:col-span-2 border border-[#E0DDD5] bg-white p-6" data-testid="holidays-list">
-          <h3 className="font-display font-bold text-lg tracking-tight border-b border-[#E0DDD5] pb-3 mb-4">Active non-working register</h3>
-          <div className="border-l-2 border-[#E8A317] bg-[#E8A317]/10 px-4 py-3 mb-4 text-xs font-mono text-[#0d0d0d]">📢 Sundays auto-filter as weekly off across the system.</div>
-          <div className="space-y-2 max-h-72 overflow-y-auto">
-            {holidays.map(h => (
-              <div key={h.id} className="flex items-center justify-between border border-[#E0DDD5] px-3 py-2.5" data-testid={`hol-row-${h.id}`}>
-                <span className="font-mono text-xs font-bold">🗓️ {h.date}</span>
-                <span className="font-mono text-xs text-[#8A877E]">{h.label}</span>
-                <button onClick={() => setHolidays(holidays.filter(x => x.id !== h.id))} className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#D93025] hover:underline" data-testid={`hol-delete-${h.id}`}>Delete</button>
-              </div>
-            ))}
-            {holidays.length === 0 && <p className="font-mono text-xs text-[#8A877E] italic">No declared closures yet.</p>}
-          </div>
+      </div>
+
+      <div className="border border-[#E0DDD5] bg-white p-6" data-testid="holidays-list">
+        <h3 className="font-display font-bold text-lg tracking-tight border-b border-[#E0DDD5] pb-3 mb-4">Active non-working register</h3>
+        <div className="border-l-2 border-[#E8A317] bg-[#E8A317]/10 px-4 py-3 mb-4 text-xs font-mono text-[#0d0d0d]">📢 Sundays auto-filter as weekly off across the system.</div>
+        <div className="space-y-2 max-h-72 overflow-y-auto">
+          {holidays.map(h => (
+            <div key={h.id} className="flex items-center justify-between border border-[#E0DDD5] px-3 py-2.5" data-testid={`hol-row-${h.id}`}>
+              <span className="font-mono text-xs font-bold">🗓️ {h.date}</span>
+              <span className="font-mono text-xs text-[#8A877E]">{h.label}</span>
+              <button onClick={() => setHolidays(holidays.filter(x => x.id !== h.id))} className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#D93025] hover:underline" data-testid={`hol-delete-${h.id}`}>Delete</button>
+            </div>
+          ))}
+          {holidays.length === 0 && <p className="font-mono text-xs text-[#8A877E] italic">No declared closures yet.</p>}
         </div>
       </div>
     </div>
@@ -737,7 +838,7 @@ function CalendarControlsView({ holidays, setHolidays }) {
    11. JOB CARDS WORKSPACE — DAILY WORK DONE
 ============================================================================ */
 
-function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, batches, workTypes, jobCards, setJobCards, leaves, setLeaves, holidays }) {
+function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, batches, workTypes, jobCards, setJobCards, leaves, setLeaves, holidays, lockCutoffDate }) {
   const [selectedKioskUser, setSelectedKioskUser] = useState(currentWorker?.id || "");
   useEffect(() => { if (currentWorker?.id) setSelectedKioskUser(currentWorker.id); }, [currentWorker]);
 
@@ -758,8 +859,9 @@ function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, 
 
   // Same-day correction state
   const todayStr = () => new Date().toISOString().split("T")[0];
-  const canModifyJob = (j) => !!currentAdmin || j.date === todayStr();
-  const canModifyLeave = (lv) => !!currentAdmin || lv.date === todayStr();
+  const isDateLocked = (dateStr) => !!lockCutoffDate && dateStr <= lockCutoffDate;
+  const canModifyJob = (j) => !isDateLocked(j.date) && (!!currentAdmin || j.date === todayStr());
+  const canModifyLeave = (lv) => !isDateLocked(lv.date) && (!!currentAdmin || lv.date === todayStr());
 
   const [editingJobId, setEditingJobId] = useState(null);
   const [editJobDraft, setEditJobDraft] = useState({ startTime: "09:00", endTime: "18:00", workTypeId: "" });
@@ -800,7 +902,7 @@ function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, 
       startTime: editJobDraft.startTime,
       endTime: editJobDraft.endTime,
       durationMinutes: mins,
-      calculatedCost: calculateJobCost(emp?.dailyWage || 600, mins),
+      calculatedCost: calculateJobCost(getWageForDate(emp, j.date), mins),
       workTypeId: editJobDraft.workTypeId || x.workTypeId,
       workType: wt ? wt.name : x.workType,
       isCorrected: !!currentAdmin ? true : x.isCorrected,
@@ -890,6 +992,7 @@ function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, 
 
   const handleOpenJob = () => {
     if (!targetOperative) return alert("Select target profile.");
+    if (isDateLocked(activeDate)) return alert(`This date is locked (≤ ${lockCutoffDate}). New entries can't be created in the locked range.`);
     const reqStart = getMinutesFromStr(manualStartTime);
     if (reqStart < 9 * 60 || reqStart > 21 * 60) return alert("Shift window: 09:00 – 21:00 only.");
     if (category === "Leave") return alert("Use the leave matrix below to file a leave.");
@@ -950,12 +1053,13 @@ function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, 
       if (j.id !== id) return j;
       const emp = employees.find(x => x.id === j.employeeId);
       const mins = calculateNetMinutes(j.startTime, closeTimeVal);
-      return { ...j, endTime: closeTimeVal, durationMinutes: mins, calculatedCost: calculateJobCost(emp ? emp.dailyWage : 600, mins), isCorrected: false };
+      return { ...j, endTime: closeTimeVal, durationMinutes: mins, calculatedCost: calculateJobCost(getWageForDate(emp, j.date), mins), isCorrected: false };
     }));
   };
 
   const handleLogLeaveRow = () => {
     if (!targetOperative) return alert("Select profile.");
+    if (isDateLocked(activeDate)) return alert(`This date is locked (≤ ${lockCutoffDate}). New leaves can't be filed in the locked range.`);
     const s = getMinutesFromStr(manualStartTime); const e = getMinutesFromStr(manualEndTime);
     if (e <= s) return alert("Leave end must follow start.");
     const net = calculateNetMinutes(manualStartTime, manualEndTime);
@@ -984,6 +1088,7 @@ function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, 
             </div>
           )}
           {calendarClosureAlert && <Pill tone="warn"><AlertTriangle size={12} /> {calendarClosureAlert}</Pill>}
+          {isDateLocked(activeDate) && <Pill tone="primary"><Lock size={12} /> Locked ≤ {lockCutoffDate}</Pill>}
         </div>
         {currentAdmin && (
           <div><Label dark={dark}>Act as worker</Label>
@@ -1226,12 +1331,20 @@ function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, 
    12. ADMIN — REPORTS / AUDIT
 ============================================================================ */
 
-function FinancialReportsView({ jobCards, setJobCards, items, batches, employees, leaves, holidays }) {
+function FinancialReportsView({ jobCards, setJobCards, items, batches, employees, leaves, holidays, workTypes }) {
   const [activeDateFilter, setActiveDateFilter] = useState(TODAY);
   const [reportMode, setReportMode] = useState("costing");
   const [batchStateFilter, setBatchStateFilter] = useState("All");
   const [batchRangeStart, setBatchRangeStart] = useState("2026-06-01");
   const [batchRangeEnd, setBatchRangeEnd] = useState("2026-12-31");
+
+  // Time-tracking export filters
+  const [ttStart, setTtStart] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split("T")[0]; });
+  const [ttEnd, setTtEnd] = useState(TODAY);
+  const [ttEmployee, setTtEmployee] = useState("");
+  const [ttItem, setTtItem] = useState("");
+  const [ttWorkType, setTtWorkType] = useState("");
+  const [ttIncludeLeaves, setTtIncludeLeaves] = useState(true);
 
   const [editingCardId, setEditingCardId] = useState(null);
   const [correctedStart, setCorrectedStart] = useState("09:00");
@@ -1285,7 +1398,7 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
       if (j.id !== id) return j;
       const emp = employees.find(e => e.id === j.employeeId);
       const mins = calculateNetMinutes(correctedStart, correctedEnd);
-      return { ...j, startTime: correctedStart, endTime: correctedEnd, durationMinutes: mins, calculatedCost: calculateJobCost(emp ? emp.dailyWage : 600, mins), isCorrected: true };
+      return { ...j, startTime: correctedStart, endTime: correctedEnd, durationMinutes: mins, calculatedCost: calculateJobCost(getWageForDate(emp, j.date), mins), isCorrected: true };
     }));
     setEditingCardId(null);
   };
@@ -1294,7 +1407,62 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
     { id: "costing", label: "Cost ledger", icon: <BarChart3 size={14} /> },
     { id: "batches_dashboard", label: "Lots matrix", icon: <Package size={14} /> },
     { id: "exceptions", label: "Exceptions", icon: <AlertTriangle size={14} /> },
+    { id: "timetracking", label: "Time tracking", icon: <FileDown size={14} /> },
   ];
+
+  // Time-tracking aggregation
+  const empName = (id) => employees.find(e => e.id === id)?.name || "";
+  const inRange = (dateStr) => (!ttStart || dateStr >= ttStart) && (!ttEnd || dateStr <= ttEnd);
+
+  const ttJobRows = jobCards
+    .filter(j => j.endTime && inRange(j.date))
+    .filter(j => !ttEmployee || j.employeeId === ttEmployee)
+    .filter(j => !ttItem || j.itemId === ttItem)
+    .filter(j => !ttWorkType || j.workType === ttWorkType)
+    .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
+
+  const ttLeaveRows = ttIncludeLeaves
+    ? leaves.filter(l => inRange(l.date)).filter(l => !ttEmployee || l.employeeId === ttEmployee).sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime))
+    : [];
+
+  const ttTotal = {
+    jobs: ttJobRows.length,
+    leaves: ttLeaveRows.length,
+    minutes: ttJobRows.reduce((s, r) => s + (r.durationMinutes || 0), 0),
+    outlay: ttJobRows.reduce((s, r) => s + (r.calculatedCost || 0), 0),
+  };
+
+  const exportTimeTrackingCSV = () => {
+    const headers = [
+      "Type", "Date", "Employee", "Item", "Batch", "Work type",
+      "Start", "End", "Net minutes", "Hours", "Wage @ date (₹/day)", "Outlay (₹)",
+      "Corrected", "Last edited at", "Last edited by",
+    ];
+    const rows = [headers.join(",")];
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    ttJobRows.forEach(j => {
+      const emp = employees.find(e => e.id === j.employeeId);
+      const wage = emp ? getWageForDate(emp, j.date) : "";
+      rows.push([
+        "Job", j.date, esc(j.employeeName), esc(j.productName || j.generalSubtype || j.rdDescription || ""),
+        esc(j.batchNumber || ""), esc(j.workType || j.category || ""),
+        j.startTime, j.endTime, j.durationMinutes, (j.durationMinutes / 60).toFixed(2),
+        wage, (j.calculatedCost ?? 0).toFixed(2),
+        j.isCorrected ? "yes" : "", j.lastEditedAt || "", j.lastEditedBy || "",
+      ].join(","));
+    });
+    ttLeaveRows.forEach(l => {
+      rows.push([
+        "Leave", l.date, esc(l.employeeName), "", "", esc(l.leaveType),
+        l.startTime, l.endTime, l.durationMinutes, (l.durationMinutes / 60).toFixed(2),
+        "", "", l.isCorrected ? "yes" : "", l.lastEditedAt || "", l.lastEditedBy || "",
+      ].join(","));
+    });
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `StitchLog_TimeTracking_${ttStart}_to_${ttEnd}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  };
 
   return (
     <div className="space-y-8" data-testid="reports-view">
@@ -1450,19 +1618,119 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
           })}
         </div>
       )}
+
+      {reportMode === "timetracking" && (
+        <div className="border border-[#E0DDD5] bg-white p-6 space-y-6 animate-fadeIn" data-testid="timetracking-panel">
+          <div className="flex flex-wrap items-end gap-4 justify-between">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end flex-1">
+              <div><Label>From</Label><FieldInput type="date" value={ttStart} onChange={e => setTtStart(e.target.value)} data-testid="tt-from" /></div>
+              <div><Label>To</Label><FieldInput type="date" value={ttEnd} onChange={e => setTtEnd(e.target.value)} data-testid="tt-to" /></div>
+              <div><Label>Employee</Label>
+                <FieldSelect value={ttEmployee} onChange={e => setTtEmployee(e.target.value)} data-testid="tt-employee">
+                  <option value="">All employees</option>
+                  {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </FieldSelect>
+              </div>
+              <div><Label>Item</Label>
+                <FieldSelect value={ttItem} onChange={e => setTtItem(e.target.value)} data-testid="tt-item">
+                  <option value="">All items</option>
+                  {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                </FieldSelect>
+              </div>
+              <div><Label>Work type</Label>
+                <FieldSelect value={ttWorkType} onChange={e => setTtWorkType(e.target.value)} data-testid="tt-worktype">
+                  <option value="">All work types</option>
+                  {workTypes.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                </FieldSelect>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className="flex items-center gap-2 font-mono text-xs uppercase tracking-[0.15em] cursor-pointer">
+              <input type="checkbox" checked={ttIncludeLeaves} onChange={e => setTtIncludeLeaves(e.target.checked)} data-testid="tt-include-leaves" /> Include leaves
+            </label>
+            <div className="flex flex-wrap items-center gap-4 font-mono text-xs">
+              <span><span className="text-[#8A877E]">Jobs:</span> <span className="font-bold">{ttTotal.jobs}</span></span>
+              <span><span className="text-[#8A877E]">Leaves:</span> <span className="font-bold">{ttTotal.leaves}</span></span>
+              <span><span className="text-[#8A877E]">Net min:</span> <span className="font-bold">{ttTotal.minutes}</span></span>
+              <span><span className="text-[#8A877E]">Total outlay:</span> <span className="font-display font-black text-base text-[#2E8540]">₹{ttTotal.outlay.toFixed(2)}</span></span>
+              <Btn tone="ink" onClick={exportTimeTrackingCSV} testid="tt-export-csv" disabled={ttJobRows.length === 0 && ttLeaveRows.length === 0}><FileDown size={14} /> Export CSV</Btn>
+            </div>
+          </div>
+
+          <div className="border border-[#E0DDD5] overflow-x-auto max-h-[55vh] overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5] sticky top-0">
+                <tr className="font-mono uppercase tracking-[0.18em] text-[#8A877E] text-[10px]">
+                  <th className="p-2">Type</th>
+                  <th className="p-2">Date</th>
+                  <th className="p-2">Employee</th>
+                  <th className="p-2">Item</th>
+                  <th className="p-2">Batch</th>
+                  <th className="p-2">Work type</th>
+                  <th className="p-2">Start</th>
+                  <th className="p-2">End</th>
+                  <th className="p-2 text-right">Min</th>
+                  <th className="p-2 text-right">Wage/d</th>
+                  <th className="p-2 text-right">Outlay</th>
+                  <th className="p-2">Flag</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E0DDD5] font-mono">
+                {ttJobRows.map(j => {
+                  const emp = employees.find(e => e.id === j.employeeId);
+                  const wage = emp ? getWageForDate(emp, j.date) : "—";
+                  return (
+                    <tr key={j.id} className="hover:bg-[#F4F3EF]" data-testid={`tt-row-${j.id}`}>
+                      <td className="p-2"><Pill tone="primary">JOB</Pill></td>
+                      <td className="p-2">{j.date}</td>
+                      <td className="p-2 font-display font-bold">{j.employeeName || empName(j.employeeId)}</td>
+                      <td className="p-2">{j.productName || j.generalSubtype || j.rdDescription || "—"}</td>
+                      <td className="p-2">{j.batchNumber || "—"}</td>
+                      <td className="p-2">{j.workType || j.category}</td>
+                      <td className="p-2">{j.startTime}</td>
+                      <td className="p-2">{j.endTime}</td>
+                      <td className="p-2 text-right font-bold">{j.durationMinutes}</td>
+                      <td className="p-2 text-right">₹{wage}</td>
+                      <td className="p-2 text-right font-black text-[#2E8540]">₹{(j.calculatedCost ?? 0).toFixed(2)}</td>
+                      <td className="p-2">{j.isCorrected ? <Pill tone="warn">CORR</Pill> : (j.lastEditedAt ? <Pill tone="default">EDIT</Pill> : null)}</td>
+                    </tr>
+                  );
+                })}
+                {ttLeaveRows.map(l => (
+                  <tr key={l.id} className="hover:bg-[#F4F3EF] bg-[#D93025]/5 text-[#D93025]" data-testid={`tt-leave-${l.id}`}>
+                    <td className="p-2"><Pill tone="error">LEAVE</Pill></td>
+                    <td className="p-2">{l.date}</td>
+                    <td className="p-2 font-display font-bold">{l.employeeName || empName(l.employeeId)}</td>
+                    <td className="p-2">—</td>
+                    <td className="p-2">—</td>
+                    <td className="p-2">{l.leaveType}</td>
+                    <td className="p-2">{l.startTime}</td>
+                    <td className="p-2">{l.endTime}</td>
+                    <td className="p-2 text-right font-bold">{l.durationMinutes}</td>
+                    <td className="p-2 text-right">—</td>
+                    <td className="p-2 text-right">—</td>
+                    <td className="p-2">{l.isCorrected ? <Pill tone="warn">CORR</Pill> : null}</td>
+                  </tr>
+                ))}
+                {ttJobRows.length === 0 && ttLeaveRows.length === 0 && (
+                  <tr><td colSpan={12} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No entries match the selected range/filters.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/* ============================================================================
-   13. ADMIN — DATA VAULT
-============================================================================ */
-
-function DataVaultView({ employees, setEmployees, items, setItems, batches, setBatches, workTypes, setWorkTypes, jobCards, setJobCards, leaves, setLeaves, holidays, setHolidays }) {
+function DataVaultView({ employees, setEmployees, items, setItems, batches, setBatches, workTypes, setWorkTypes, jobCards, setJobCards, leaves, setLeaves, holidays, setHolidays, lockCutoffDate, setLockCutoffDate }) {
   const [status, setStatus] = useState(null);
 
   const exportAll = () => {
-    const payload = { version: "v7", exportedAt: new Date().toISOString(), employees, items, batches, workTypes, jobCards, leaves, holidays };
+    const payload = { version: "v8", exportedAt: new Date().toISOString(), employees, items, batches, workTypes, jobCards, leaves, holidays, lockCutoffDate };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = `stitchlog_backup_${TODAY}.json`;
@@ -1482,6 +1750,7 @@ function DataVaultView({ employees, setEmployees, items, setItems, batches, setB
         if (data.jobCards) setJobCards(data.jobCards);
         if (data.leaves) setLeaves(data.leaves);
         if (data.holidays) setHolidays(data.holidays);
+        if (typeof data.lockCutoffDate === "string") setLockCutoffDate(data.lockCutoffDate);
         setStatus({ tone: "success", msg: "Restore complete. All registries replaced." });
       } catch {
         setStatus({ tone: "error", msg: "Invalid backup file." });
@@ -1492,7 +1761,7 @@ function DataVaultView({ employees, setEmployees, items, setItems, batches, setB
   const wipe = () => {
     if (!window.confirm("Wipe all registries back to seed defaults? This cannot be undone.")) return;
     setEmployees(INITIAL_EMPLOYEES); setItems(INITIAL_ITEMS); setBatches(INITIAL_BATCHES);
-    setWorkTypes(INITIAL_WORKTYPES); setJobCards([]); setLeaves([]); setHolidays(INITIAL_HOLIDAYS);
+    setWorkTypes(INITIAL_WORKTYPES); setJobCards([]); setLeaves([]); setHolidays(INITIAL_HOLIDAYS); setLockCutoffDate("");
     setStatus({ tone: "success", msg: "Reset to factory seed complete." });
   };
 
@@ -1557,6 +1826,7 @@ export default function App() {
   const [jobCards, setJobCards] = useState(() => { const s = localStorage.getItem("sl_jobs_v8"); return s ? JSON.parse(s) : []; });
   const [leaves, setLeaves] = useState(() => { const s = localStorage.getItem("sl_lv_v8"); return s ? JSON.parse(s) : []; });
   const [holidays, setHolidays] = useState(() => { const s = localStorage.getItem("sl_hol_v6"); return s ? JSON.parse(s) : INITIAL_HOLIDAYS; });
+  const [lockCutoffDate, setLockCutoffDate] = useState(() => localStorage.getItem("sl_lockcut_v1") || "");
 
   const [currentAdmin, setCurrentAdmin] = useState(null);
   const [currentWorker, setCurrentWorker] = useState(null);
@@ -1639,10 +1909,10 @@ export default function App() {
           {currentView === "items" && currentAdmin && <ItemsManagementView items={items} setItems={setItems} batches={batches} />}
           {currentView === "batches" && currentAdmin && <BatchesManagementView items={items} batches={batches} setBatches={setBatches} />}
           {currentView === "worktypes" && currentAdmin && <WorkTypesManagementView workTypes={workTypes} setWorkTypes={setWorkTypes} />}
-          {currentView === "calendar_setup" && currentAdmin && <CalendarControlsView holidays={holidays} setHolidays={setHolidays} />}
-          {currentView === "jobcards" && <JobCardsWorkspaceView currentWorker={currentWorker} currentAdmin={currentAdmin} employees={employees} items={items} batches={batches} workTypes={workTypes} jobCards={jobCards} setJobCards={setJobCards} leaves={leaves} setLeaves={setLeaves} holidays={holidays} />}
-          {currentView === "reports" && currentAdmin && <FinancialReportsView jobCards={jobCards} setJobCards={setJobCards} items={items} batches={batches} employees={employees} leaves={leaves} holidays={holidays} />}
-          {currentView === "vault" && currentAdmin && <DataVaultView employees={employees} setEmployees={setEmployees} items={items} setItems={setItems} batches={batches} setBatches={setBatches} workTypes={workTypes} setWorkTypes={setWorkTypes} jobCards={jobCards} setJobCards={setJobCards} leaves={leaves} setLeaves={setLeaves} holidays={holidays} setHolidays={setHolidays} />}
+          {currentView === "calendar_setup" && currentAdmin && <CalendarControlsView holidays={holidays} setHolidays={setHolidays} lockCutoffDate={lockCutoffDate} setLockCutoffDate={setLockCutoffDate} />}
+          {currentView === "jobcards" && <JobCardsWorkspaceView currentWorker={currentWorker} currentAdmin={currentAdmin} employees={employees} items={items} batches={batches} workTypes={workTypes} jobCards={jobCards} setJobCards={setJobCards} leaves={leaves} setLeaves={setLeaves} holidays={holidays} lockCutoffDate={lockCutoffDate} />}
+          {currentView === "reports" && currentAdmin && <FinancialReportsView jobCards={jobCards} setJobCards={setJobCards} items={items} batches={batches} employees={employees} leaves={leaves} holidays={holidays} workTypes={workTypes} />}
+          {currentView === "vault" && currentAdmin && <DataVaultView employees={employees} setEmployees={setEmployees} items={items} setItems={setItems} batches={batches} setBatches={setBatches} workTypes={workTypes} setWorkTypes={setWorkTypes} jobCards={jobCards} setJobCards={setJobCards} leaves={leaves} setLeaves={setLeaves} holidays={holidays} setHolidays={setHolidays} lockCutoffDate={lockCutoffDate} setLockCutoffDate={setLockCutoffDate} />}
         </main>
       </div>
     </div>
