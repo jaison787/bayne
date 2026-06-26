@@ -15,12 +15,33 @@ const ADMIN_ACCOUNTS = [
   { adminId: "admin2", password: "supervisordash", name: "Manager Admin" },
 ];
 
-const INITIAL_EMPLOYEES = [
-  { id: "emp_1", name: "Arun Kumar", dailyWage: 660, role: "Worker", allowMultiJob: false, pin: "1234", active: true },
-  { id: "emp_2", name: "Sarah Thomas", dailyWage: 770, role: "Supervisor", allowMultiJob: true, pin: "5678", active: true },
-  { id: "emp_3", name: "Rahul Vignesh", dailyWage: 550, role: "Worker", allowMultiJob: true, pin: "1111", active: true },
-  { id: "emp_4", name: "Priya Lakshmi", dailyWage: 600, role: "Worker", allowMultiJob: false, pin: "2222", active: true },
+const ROSTER = [
+  ["Arbaz", 550], ["Arshad", 900], ["Bikash", 500], ["Birshapati", 750],
+  ["Dhonanjoy", 500], ["Dileep", 800], ["Ekalak", 950], ["Irfan", 750],
+  ["Irshad", 950], ["Jagat", 600], ["Jamal", 950], ["Jamshad", 700],
+  ["Jasim", 500], ["Jessy", 480], ["Kamal", 1100], ["Karim", 850],
+  ["Lal Badsha", 750], ["Lallu", 385], ["Majhar", 800], ["Masud", 800],
+  ["Mukesh", 700], ["Muslim", 850], ["Paresh", 650], ["Pradeep", 500],
+  ["Rahin", 750], ["Rajendar", 750], ["Rakesh", 500], ["Rasendra", 750],
+  ["Ravi", 500], ["Roshan", 850], ["Sahid", 700], ["Sakir", 1350],
+  ["Shahid Babu", 800], ["Shohaib", 850], ["Sonu", 500], ["Sunil", 500],
+  ["Suresh", 500], ["Upendar", 500], ["Veer Singh", 850], ["Vineetha", 480],
+  ["Waris", 850], ["Yudhishti", 550], ["Mary Teena", 400], ["Rubeena", 400],
+  ["Raseena", 400], ["Kurshid", 800], ["Sumith", 500], ["Ramesh", 500],
+  ["Rema", 400], ["Salauddin", 850], ["Nasarul", 750], ["Gulam", 850],
+  ["Istiqah", 500], ["Sanaul", 850], ["Jilani", 800], ["Sahid Ansari", 500],
+  ["Jalal", 700], ["Mufijuddin", 850], ["Muslim Ansari", 850], ["Maniruddin", 700],
 ];
+
+const INITIAL_EMPLOYEES = ROSTER.map(([name, dailyWage]) => ({
+  id: "emp_" + name.toLowerCase().replace(/\s+/g, "_"),
+  name,
+  dailyWage,
+  role: "Worker",
+  allowMultiJob: false,
+  pin: "1111",
+  active: true,
+}));
 
 const INITIAL_PRODUCTIONS = [
   { id: "prod_1", productName: "Premium Cotton Shirts", batchNumber: "BATCH-2026-001", yieldCount: 150, status: "Active", startDate: "2026-06-20", endDate: "" },
@@ -28,14 +49,8 @@ const INITIAL_PRODUCTIONS = [
   { id: "prod_3", productName: "Summer Linen Dresses", batchNumber: "BATCH-2026-003", yieldCount: 200, status: "Completed", startDate: "2026-06-10", endDate: "2026-06-25" },
 ];
 
-const INITIAL_JOBCARDS = [
-  { id: "job_1", employeeId: "emp_1", employeeName: "Arun Kumar", date: "2026-06-25", category: "Production", productionId: "prod_1", productName: "Premium Cotton Shirts", batchNumber: "BATCH-2026-001", startTime: "09:00", endTime: "13:00", durationMinutes: 240, calculatedCost: 240, isCorrected: false },
-  { id: "job_2", employeeId: "emp_1", employeeName: "Arun Kumar", date: "2026-06-25", category: "Production", productionId: "prod_1", productName: "Premium Cotton Shirts", batchNumber: "BATCH-2026-001", startTime: "14:00", endTime: "17:00", durationMinutes: 180, calculatedCost: 180, isCorrected: false },
-];
-
-const INITIAL_LEAVES = [
-  { id: "lv_1", employeeId: "emp_4", employeeName: "Priya Lakshmi", date: "2026-06-25", startTime: "09:00", endTime: "13:00", durationMinutes: 240, leaveType: "Half Day Leave" },
-];
+const INITIAL_JOBCARDS = [];
+const INITIAL_LEAVES = [];
 
 const INITIAL_HOLIDAYS = [{ id: "hol_1", date: "2026-08-15", label: "Independence Day" }];
 
@@ -321,7 +336,7 @@ function WorkerKioskScreen({ employees, setView, onLogin }) {
           <div>
             <Label dark>Secure PIN</Label>
             <FieldInput dark type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} placeholder="••••" required className="text-center font-mono text-2xl tracking-[0.5em]" data-testid="worker-pin-input" />
-            <p className="font-mono text-[10px] text-white/40 mt-2 uppercase tracking-[0.2em]">Demo PINs: 1234 / 5678 / 1111 / 2222</p>
+            <p className="font-mono text-[10px] text-white/40 mt-2 uppercase tracking-[0.2em]">All operator PINs: 1111</p>
           </div>
           <Btn type="submit" tone="blaze" className="w-full" testid="worker-login-submit"><User size={14} /> Enter terminal</Btn>
         </div>
@@ -1244,21 +1259,28 @@ function DataVaultView({ employees, setEmployees, productions, setProductions, j
 ============================================================================ */
 
 export default function App() {
-  const [employees, setEmployees] = useState(() => { const s = localStorage.getItem("sl_emp_v5"); return s ? JSON.parse(s) : INITIAL_EMPLOYEES; });
-  const [productions, setProductions] = useState(() => { const s = localStorage.getItem("sl_prod_v5"); return s ? JSON.parse(s) : INITIAL_PRODUCTIONS; });
-  const [jobCards, setJobCards] = useState(() => { const s = localStorage.getItem("sl_jobs_v5"); return s ? JSON.parse(s) : INITIAL_JOBCARDS; });
-  const [leaves, setLeaves] = useState(() => { const s = localStorage.getItem("sl_lv_v5"); return s ? JSON.parse(s) : INITIAL_LEAVES; });
-  const [holidays, setHolidays] = useState(() => { const s = localStorage.getItem("sl_hol_v5"); return s ? JSON.parse(s) : INITIAL_HOLIDAYS; });
+  const [employees, setEmployees] = useState(() => { const s = localStorage.getItem("sl_emp_v6"); return s ? JSON.parse(s) : INITIAL_EMPLOYEES; });
+  const [productions, setProductions] = useState(() => { const s = localStorage.getItem("sl_prod_v6"); return s ? JSON.parse(s) : INITIAL_PRODUCTIONS; });
+  const [jobCards, setJobCards] = useState(() => { const s = localStorage.getItem("sl_jobs_v6"); return s ? JSON.parse(s) : INITIAL_JOBCARDS; });
+  const [leaves, setLeaves] = useState(() => { const s = localStorage.getItem("sl_lv_v6"); return s ? JSON.parse(s) : INITIAL_LEAVES; });
+  const [holidays, setHolidays] = useState(() => { const s = localStorage.getItem("sl_hol_v6"); return s ? JSON.parse(s) : INITIAL_HOLIDAYS; });
 
   const [currentAdmin, setCurrentAdmin] = useState(null);
   const [currentWorker, setCurrentWorker] = useState(null);
   const [currentView, setCurrentView] = useState("landing");
 
-  useEffect(() => { localStorage.setItem("sl_emp_v5", JSON.stringify(employees)); }, [employees]);
-  useEffect(() => { localStorage.setItem("sl_prod_v5", JSON.stringify(productions)); }, [productions]);
-  useEffect(() => { localStorage.setItem("sl_jobs_v5", JSON.stringify(jobCards)); }, [jobCards]);
-  useEffect(() => { localStorage.setItem("sl_lv_v5", JSON.stringify(leaves)); }, [leaves]);
-  useEffect(() => { localStorage.setItem("sl_hol_v5", JSON.stringify(holidays)); }, [holidays]);
+  // One-time migration: clear out old v5 seed keys so the new v6 roster takes over.
+  useEffect(() => {
+    if (localStorage.getItem("sl_emp_v5") !== null) {
+      ["sl_emp_v5", "sl_prod_v5", "sl_jobs_v5", "sl_lv_v5", "sl_hol_v5"].forEach(k => localStorage.removeItem(k));
+    }
+  }, []);
+
+  useEffect(() => { localStorage.setItem("sl_emp_v6", JSON.stringify(employees)); }, [employees]);
+  useEffect(() => { localStorage.setItem("sl_prod_v6", JSON.stringify(productions)); }, [productions]);
+  useEffect(() => { localStorage.setItem("sl_jobs_v6", JSON.stringify(jobCards)); }, [jobCards]);
+  useEffect(() => { localStorage.setItem("sl_lv_v6", JSON.stringify(leaves)); }, [leaves]);
+  useEffect(() => { localStorage.setItem("sl_hol_v6", JSON.stringify(holidays)); }, [holidays]);
 
   const logout = () => { setCurrentAdmin(null); setCurrentWorker(null); setCurrentView("landing"); };
 
