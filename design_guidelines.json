@@ -1,0 +1,94 @@
+{
+  "theme": "hybrid_fullstack",
+  "archetype": "4 (Swiss & High-Contrast) + Industrial Tactile",
+  "colors": {
+    "light": {
+      "base": "#F4F3EF",
+      "surface": "#FFFFFF",
+      "text": "#111111",
+      "primary": "#0028A8",
+      "secondary": "#E84824",
+      "border": "#E0DDD5",
+      "muted": "#8A877E",
+      "success": "#2E8540",
+      "warning": "#E8A317",
+      "error": "#D93025"
+    },
+    "dark": {
+      "base": "#0D0D0D",
+      "surface": "#1A1A1A",
+      "text": "#F4F3EF",
+      "primary": "#E84824",
+      "secondary": "#0028A8",
+      "border": "#2A2A2A",
+      "muted": "#7A7A7A",
+      "success": "#34C759",
+      "warning": "#FFCC00",
+      "error": "#FF3B30"
+    }
+  },
+  "typography": {
+    "headings": "Cabinet Grotesk",
+    "body": "IBM Plex Sans",
+    "mono": "IBM Plex Mono",
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-black tracking-tighter",
+      "h2": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "h3": "text-xl sm:text-2xl font-semibold",
+      "body": "text-base leading-relaxed",
+      "labels": "text-xs font-mono uppercase tracking-[0.2em]",
+      "data": "text-sm font-mono"
+    }
+  },
+  "spacing": "Generous scaling, p-6 or p-8 for containers with borders. p-12 for section gaps. Dense grid for KPI and matrices with gap-4 or gap-6.",
+  "layout_strategy": {
+    "admin": "Grid Borders (Technical Look). Visible skeleton, border-collapse styles. Tabular data uses monospace. Sharp edges.",
+    "kiosk": "Massive touch targets, asymmetrical bento blocks. High contrast. Tetris grid for actions."
+  },
+  "surface_styles": {
+    "admin_cards": "Flat background, 1px solid border (#E0DDD5), no shadow. Hover: slight lift, subtle shadow, border darkens.",
+    "kiosk_buttons": "Solid Electric Blaze or Ink Black, sharp corners, tactile feedback. Hover: background becomes lighter hue."
+  },
+  "motion": {
+    "hover": "transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease",
+    "kiosk_tap": "Scale down slightly on active/press. focus:ring-2 focus:ring-primary"
+  },
+  "icons": "Phosphor Icons (@phosphor-icons/react) for a technical, duotone look.",
+  "components": {
+    "buttons": "Square or very slightly rounded (rounded-sm). Distinct hover states with high contrast text. Only primary color for main CTAs.",
+    "inputs": "Shadcn based. Sharp borders, high contrast focus rings.",
+    "tables": "Dense, monospace for numbers, left-align standard data, right-align financials.",
+    "pills": "Status pills use bright colors with high contrast text (e.g. bg-error text-white)."
+  },
+  "media": {
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1741176505800-caaa3a52631a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwxfHxnYXJtZW50JTIwdGV4dGlsZSUyMGZhY3RvcnklMjB3b3JrZXJ8ZW58MHx8fHwxNzgyNDkwNTM4fDA&ixlib=rb-4.1.0&q=85",
+        "category": "admin_login_bg",
+        "description": "Textile factory workers sewing, used as the background for the Admin Vault login to establish industrial context."
+      },
+      {
+        "url": "https://images.pexels.com/photos/31047167/pexels-photo-31047167.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "kiosk_login_bg",
+        "description": "Worker operating sewing machine, used for Worker Terminal login to give a grounded, authentic feel."
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1606501126768-b78d4569d3f9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjV8MHwxfHNlYXJjaHwxfHxzZXdpbmclMjBtYWNoaW5lJTIwdGV4dGlsZSUyMGZhYnJpY3xlbnwwfHx8fDE3ODI0OTA1Mzh8MA&ixlib=rb-4.1.0&q=85",
+        "category": "empty_state",
+        "description": "Close up of sewing machine, perfect for empty states or generic textured backgrounds."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Build 'StitchLog Suite v5 (Bayne Edition)' as a factory floor production logging system.",
+    "Implement a clear two-mode UI: Light Mode for Admin Vault (tactile, technical, off-white #F4F3EF base) and Dark Mode for Worker Terminal (high-contrast, #0D0D0D base). Explicitly avoid the generic dark slate/emerald SaaS look.",
+    "Use Cabinet Grotesk for headings, IBM Plex Sans for body, and IBM Plex Mono for tables/logs/kiosk inputs. Install @fontsource packages or load via Google Fonts.",
+    "Do not use Shadcn Card components natively if they enforce roundness and soft shadows. Override them to use custom flat surfaces with 1px borders (Grid Borders style) for the Admin.",
+    "Use @phosphor-icons/react for icons.",
+    "CRITICAL: Ensure all interactive and key informational elements have `data-testid` attributes (kebab-case, role-based).",
+    "Implement pure localStorage functionality for the 5 requested keys (no backend).",
+    "Kiosk flow: PIN pad login, cascading Product->Batch dropdowns, 4 category tabs, HH:MM dual-select time picker, active job card workspace.",
+    "Admin flow: 4 KPI tiles, Personnel matrix with inline edit, Production batch master, Holiday manager, Financial Reports with CSV export.",
+    "Apply strict contrast rules, especially for Worker Terminal readability."
+  ]
+}
