@@ -1,0 +1,28 @@
+{
+  "summary": "Smoke test of StitchLog Suite v5 frontend (localStorage-only). Landing, admin auth (good/bad), admin dashboard KPIs, sidebar nav, employees CRUD, logout, and localStorage persistence all verified. Worker login partial verification — operator dropdown testid suspected mismatch (worker-operator-select not found).",
+  "tested_scope": ["frontend"],
+  "passed": [
+    "Landing screen renders both CTAs (enter-worker-terminal, enter-admin-vault)",
+    "Admin login with bad password shows admin-login-error",
+    "Admin login admin1/password123 reaches dashboard with all 4 KPI tiles (kpi-open-cards, kpi-active-force, kpi-active-lots, kpi-gross-outlay)",
+    "All 7 sidebar nav testids present and clickable (nav-dashboard, nav-employees, nav-productions, nav-calendar_setup, nav-jobcards, nav-reports, nav-vault)",
+    "Employees CRUD: created 'Test Employee Z' via emp-name/wage/pin/role-select + emp-submit; row visible in employees-table",
+    "logout-btn returns user to landing screen",
+    "localStorage persistence verified: all 5 keys (sl_emp_v5, sl_prod_v5, sl_jobs_v5, sl_lv_v5, sl_hol_v5) present; new employee persisted in sl_emp_v5"
+  ],
+  "failed": [
+    {
+      "area": "Worker terminal operator selector",
+      "issue": "data-testid=\"worker-operator-select\" not found on operator dropdown. Visible 'Select Identity / Choose name' dropdown exists but lacks expected testid. Wrong-PIN error path could not be exercised because operator selection could not be made via testid.",
+      "evidence": "Playwright: 'Page.select_option: Timeout 7000ms exceeded - waiting for locator [data-testid=\"worker-operator-select\"]'. Screenshot shows dropdown with placeholder '— Choose name —' and native validation 'Please select an item in the list.'",
+      "priority": "MEDIUM"
+    }
+  ],
+  "action_items": [
+    "Verify the operator select element in worker-login-form has data-testid=\"worker-operator-select\" (or document the actual testid so tests can target it). Same check recommended for downstream worker-flow selects (product-select, batch-select, actas-select) and admin emp-role-select consistency."
+  ],
+  "success_rate": {"backend": "n/a (no backend)", "frontend": "~90% (10 of 11 core checks passed)"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "Deferred to full QA: Productions CRUD cycle, Calendar holidays, full Job cards open/close + concurrency cap alert, Reports (cost ledger / batches_dashboard CSV / exceptions), corrections override, vault export/wipe, worker ₹ symbol hiding, leave classification thresholds, hard-reload persistence. Native dialog handler (page.on('dialog')) was wired as instructed."
+}
