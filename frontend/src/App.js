@@ -43,11 +43,28 @@ const INITIAL_EMPLOYEES = ROSTER.map(([name, dailyWage]) => ({
   active: true,
 }));
 
-const INITIAL_PRODUCTIONS = [
-  { id: "prod_1", productName: "Premium Cotton Shirts", batchNumber: "BATCH-2026-001", yieldCount: 150, status: "Active", startDate: "2026-06-20", endDate: "" },
-  { id: "prod_2", productName: "Slim Fit Denim", batchNumber: "BATCH-2026-002", yieldCount: 100, status: "Only Packing Pending", startDate: "2026-06-22", endDate: "" },
-  { id: "prod_3", productName: "Summer Linen Dresses", batchNumber: "BATCH-2026-003", yieldCount: 200, status: "Completed", startDate: "2026-06-10", endDate: "2026-06-25" },
+const PRODUCT_CATALOG = [
+  "All items", "Black Ladies bag", "Black Rain Cover", "Blackduffel",
+  "Blackgymbag", "Brown ladies bag", "Brown Duffle", "China brown pocket",
+  "China metal zib", "China sidegymbag", "CLB-2025", "Core lunch office tote",
+  "Cream black pocket", "Cream Ladies bag", "DogBag Green", "DogBag Green (L)",
+  "Ease Office Tote", "Fallaka bag", "Fanny Pack", "Field tote bag",
+  "FileBag (L)", "Flower bag", "Fukka bag", "Gallonbottle",
+  "Grey DogBag", "Grey DogBag (L)", "GreyDuffle", "Messenger bag",
+  "Metal Zib compartment", "Mini Gym Black", "Mokka bag", "Pinkgymbag",
+  "Sample", "Shifting", "Sidegymbag colour", "Weekender bag",
+  "White Rain Cover", "Women travel bag",
 ];
+
+const INITIAL_PRODUCTIONS = PRODUCT_CATALOG.map((productName, i) => ({
+  id: "prod_" + productName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""),
+  productName,
+  batchNumber: `BATCH-2026-${String(i + 1).padStart(3, "0")}`,
+  yieldCount: 100,
+  status: "Active",
+  startDate: "2026-06-26",
+  endDate: "",
+}));
 
 const INITIAL_JOBCARDS = [];
 const INITIAL_LEAVES = [];
@@ -1260,26 +1277,29 @@ function DataVaultView({ employees, setEmployees, productions, setProductions, j
 
 export default function App() {
   const [employees, setEmployees] = useState(() => { const s = localStorage.getItem("sl_emp_v6"); return s ? JSON.parse(s) : INITIAL_EMPLOYEES; });
-  const [productions, setProductions] = useState(() => { const s = localStorage.getItem("sl_prod_v6"); return s ? JSON.parse(s) : INITIAL_PRODUCTIONS; });
-  const [jobCards, setJobCards] = useState(() => { const s = localStorage.getItem("sl_jobs_v6"); return s ? JSON.parse(s) : INITIAL_JOBCARDS; });
-  const [leaves, setLeaves] = useState(() => { const s = localStorage.getItem("sl_lv_v6"); return s ? JSON.parse(s) : INITIAL_LEAVES; });
+  const [productions, setProductions] = useState(() => { const s = localStorage.getItem("sl_prod_v7"); return s ? JSON.parse(s) : INITIAL_PRODUCTIONS; });
+  const [jobCards, setJobCards] = useState(() => { const s = localStorage.getItem("sl_jobs_v7"); return s ? JSON.parse(s) : INITIAL_JOBCARDS; });
+  const [leaves, setLeaves] = useState(() => { const s = localStorage.getItem("sl_lv_v7"); return s ? JSON.parse(s) : INITIAL_LEAVES; });
   const [holidays, setHolidays] = useState(() => { const s = localStorage.getItem("sl_hol_v6"); return s ? JSON.parse(s) : INITIAL_HOLIDAYS; });
 
   const [currentAdmin, setCurrentAdmin] = useState(null);
   const [currentWorker, setCurrentWorker] = useState(null);
   const [currentView, setCurrentView] = useState("landing");
 
-  // One-time migration: clear out old v5 seed keys so the new v6 roster takes over.
+  // One-time migration: clear out old seed keys so newer roster/catalog takes over.
   useEffect(() => {
     if (localStorage.getItem("sl_emp_v5") !== null) {
       ["sl_emp_v5", "sl_prod_v5", "sl_jobs_v5", "sl_lv_v5", "sl_hol_v5"].forEach(k => localStorage.removeItem(k));
     }
+    if (localStorage.getItem("sl_prod_v6") !== null) {
+      ["sl_prod_v6", "sl_jobs_v6", "sl_lv_v6"].forEach(k => localStorage.removeItem(k));
+    }
   }, []);
 
   useEffect(() => { localStorage.setItem("sl_emp_v6", JSON.stringify(employees)); }, [employees]);
-  useEffect(() => { localStorage.setItem("sl_prod_v6", JSON.stringify(productions)); }, [productions]);
-  useEffect(() => { localStorage.setItem("sl_jobs_v6", JSON.stringify(jobCards)); }, [jobCards]);
-  useEffect(() => { localStorage.setItem("sl_lv_v6", JSON.stringify(leaves)); }, [leaves]);
+  useEffect(() => { localStorage.setItem("sl_prod_v7", JSON.stringify(productions)); }, [productions]);
+  useEffect(() => { localStorage.setItem("sl_jobs_v7", JSON.stringify(jobCards)); }, [jobCards]);
+  useEffect(() => { localStorage.setItem("sl_lv_v7", JSON.stringify(leaves)); }, [leaves]);
   useEffect(() => { localStorage.setItem("sl_hol_v6", JSON.stringify(holidays)); }, [holidays]);
 
   const logout = () => { setCurrentAdmin(null); setCurrentWorker(null); setCurrentView("landing"); };
