@@ -314,7 +314,7 @@ function WorkerKioskScreen({ employees, setView, onLogin }) {
         {error && <div className="mt-6 border border-[#E84824] bg-[#E84824]/10 text-[#E84824] text-xs font-mono px-3 py-2.5 flex items-center gap-2" data-testid="worker-login-error"><AlertTriangle size={14} />{error}</div>}
         <div className="mt-8 space-y-5">
           <div><Label dark>Select identity</Label>
-            <FieldSelect dark value={selectedEmpId} onChange={e => setSelectedEmpId(e.target.value)} required data-testid="worker-identity-select">
+            <FieldSelect dark value={selectedEmpId} onChange={e => setSelectedEmpId(e.target.value)} required data-testid="worker-operator-select">
               <option value="" className="bg-black">— Choose name —</option>
               {employees.filter(e => e.active).map(e => <option key={e.id} value={e.id} className="bg-black">{e.name} ({e.role})</option>)}
             </FieldSelect>
@@ -1345,6 +1345,7 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
   const [ttItem, setTtItem] = useState("");
   const [ttWorkType, setTtWorkType] = useState("");
   const [ttIncludeLeaves, setTtIncludeLeaves] = useState(true);
+  const [ttGroupBy, setTtGroupBy] = useState("none");
 
   const [editingCardId, setEditingCardId] = useState(null);
   const [correctedStart, setCorrectedStart] = useState("09:00");
@@ -1432,35 +1433,223 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
     outlay: ttJobRows.reduce((s, r) => s + (r.calculatedCost || 0), 0),
   };
 
+  const getYearWeek = (dateStr) => {
+    if (!dateStr) return "";
+    const date = new Date(dateStr);
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+  };
+
+  const groupedData = useMemo(() => {
+    if (ttGroupBy === "none") return null;
+
+    if (ttGroupBy === "employee") {
+      const map = {};
+      ttJobRows.forEach(j => {
+        const key = j.employeeId;
+        if (!map[key]) {
+          map[key] = {
+            id: key,
+            name: j.employeeName || empName(j.employeeId),
+            jobs: 0,
+            leaves: 0,
+            minutes: 0,
+            outlay: 0,
+          };
+        }
+        map[key].jobs += 1;
+        map[key].minutes += j.durationMinutes || 0;
+        map[key].outlay += j.calculatedCost || 0;
+      });
+      ttLeaveRows.forEach(l => {
+        const key = l.employeeId;
+        if (!map[key]) {
+          map[key] = {
+            id: key,
+            name: l.employeeName || empName(l.employeeId),
+            jobs: 0,
+            leaves: 0,
+            minutes: 0,
+            outlay: 0,
+          };
+        }
+        map[key].leaves += 1;
+      });
+      return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    if (ttGroupBy === "batch") {
+      const map = {};
+      ttJobRows.forEach(j => {
+        const key = j.batchId || "unbatched";
+        if (!map[key]) {
+          const batchInfo = batches.find(b => b.id === j.batchId);
+          map[key] = {
+            id: key,
+            batchNumber: j.batchNumber || "General/Other",
+            productName: j.productName || "—",
+            status: batchInfo ? batchInfo.status : "—",
+            yieldCount: batchInfo ? batchInfo.yieldCount : 0,
+            jobs: 0,
+            minutes: 0,
+            outlay: 0,
+          };
+        }
+        map[key].jobs += 1;
+        map[key].minutes += j.durationMinutes || 0;
+        map[key].outlay += j.calculatedCost || 0;
+      });
+      return Object.values(map).sort((a, b) => a.batchNumber.localeCompare(b.batchNumber));
+    }
+
+    if (ttGroupBy === "product") {
+      const map = {};
+      ttJobRows.forEach(j => {
+        const key = j.itemId || "unassigned";
+        if (!map[key]) {
+          map[key] = {
+            id: key,
+            productName: j.productName || j.generalSubtype || j.rdDescription || "General/Other",
+            batches: new Set(),
+            jobs: 0,
+            minutes: 0,
+            outlay: 0,
+          };
+        }
+        if (j.batchId) map[key].batches.add(j.batchId);
+        map[key].jobs += 1;
+        map[key].minutes += j.durationMinutes || 0;
+        map[key].outlay += j.calculatedCost || 0;
+      });
+      return Object.values(map).map(p => ({
+        ...p,
+        batchesCount: p.batches.size,
+      })).sort((a, b) => a.productName.localeCompare(b.productName));
+    }
+
+    if (ttGroupBy === "weekly") {
+      const map = {};
+      ttJobRows.forEach(j => {
+        const key = getYearWeek(j.date);
+        if (!map[key]) {
+          map[key] = {
+            id: key,
+            week: key,
+            jobs: 0,
+            minutes: 0,
+            outlay: 0,
+          };
+        }
+        map[key].jobs += 1;
+        map[key].minutes += j.durationMinutes || 0;
+        map[key].outlay += j.calculatedCost || 0;
+      });
+      return Object.values(map).sort((a, b) => b.week.localeCompare(a.week));
+    }
+
+    if (ttGroupBy === "monthly") {
+      const map = {};
+      ttJobRows.forEach(j => {
+        const key = j.date ? j.date.substring(0, 7) : "unknown";
+        if (!map[key]) {
+          map[key] = {
+            id: key,
+            month: key,
+            jobs: 0,
+            minutes: 0,
+            outlay: 0,
+          };
+        }
+        map[key].jobs += 1;
+        map[key].minutes += j.durationMinutes || 0;
+        map[key].outlay += j.calculatedCost || 0;
+      });
+      return Object.values(map).sort((a, b) => b.month.localeCompare(a.month));
+    }
+
+    return null;
+  }, [ttGroupBy, ttJobRows, ttLeaveRows, batches]);
+
   const exportTimeTrackingCSV = () => {
-    const headers = [
-      "Type", "Date", "Employee", "Item", "Batch", "Work type",
-      "Start", "End", "Net minutes", "Hours", "Wage @ date (₹/day)", "Outlay (₹)",
-      "Corrected", "Last edited at", "Last edited by",
-    ];
-    const rows = [headers.join(",")];
+    let headers = [];
+    const rows = [];
     const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    ttJobRows.forEach(j => {
-      const emp = employees.find(e => e.id === j.employeeId);
-      const wage = emp ? getWageForDate(emp, j.date) : "";
-      rows.push([
-        "Job", j.date, esc(j.employeeName), esc(j.productName || j.generalSubtype || j.rdDescription || ""),
-        esc(j.batchNumber || ""), esc(j.workType || j.category || ""),
-        j.startTime, j.endTime, j.durationMinutes, (j.durationMinutes / 60).toFixed(2),
-        wage, (j.calculatedCost ?? 0).toFixed(2),
-        j.isCorrected ? "yes" : "", j.lastEditedAt || "", j.lastEditedBy || "",
-      ].join(","));
-    });
-    ttLeaveRows.forEach(l => {
-      rows.push([
-        "Leave", l.date, esc(l.employeeName), "", "", esc(l.leaveType),
-        l.startTime, l.endTime, l.durationMinutes, (l.durationMinutes / 60).toFixed(2),
-        "", "", l.isCorrected ? "yes" : "", l.lastEditedAt || "", l.lastEditedBy || "",
-      ].join(","));
-    });
+
+    if (ttGroupBy === "none") {
+      headers = [
+        "Type", "Date", "Employee", "Item", "Batch", "Work type",
+        "Start", "End", "Net minutes", "Hours", "Wage @ date (₹/day)", "Outlay (₹)",
+        "Corrected", "Last edited at", "Last edited by",
+      ];
+      rows.push(headers.join(","));
+      ttJobRows.forEach(j => {
+        const emp = employees.find(e => e.id === j.employeeId);
+        const wage = emp ? getWageForDate(emp, j.date) : "";
+        rows.push([
+          "Job", j.date, esc(j.employeeName), esc(j.productName || j.generalSubtype || j.rdDescription || ""),
+          esc(j.batchNumber || ""), esc(j.workType || j.category || ""),
+          j.startTime, j.endTime, j.durationMinutes, (j.durationMinutes / 60).toFixed(2),
+          wage, (j.calculatedCost ?? 0).toFixed(2),
+          j.isCorrected ? "yes" : "", j.lastEditedAt || "", j.lastEditedBy || "",
+        ].join(","));
+      });
+      ttLeaveRows.forEach(l => {
+        rows.push([
+          "Leave", l.date, esc(l.employeeName), "", "", esc(l.leaveType),
+          l.startTime, l.endTime, l.durationMinutes, (l.durationMinutes / 60).toFixed(2),
+          "", "", l.isCorrected ? "yes" : "", l.lastEditedAt || "", l.lastEditedBy || "",
+        ].join(","));
+      });
+    } else if (ttGroupBy === "employee") {
+      headers = ["Employee Name", "Jobs Logged", "Leaves Filed", "Net Minutes", "Net Hours", "Total Outlay (₹)"];
+      rows.push(headers.join(","));
+      groupedData.forEach(row => {
+        rows.push([
+          esc(row.name), row.jobs, row.leaves, row.minutes, (row.minutes / 60).toFixed(2), row.outlay.toFixed(2)
+        ].join(","));
+      });
+    } else if (ttGroupBy === "batch") {
+      headers = ["Batch Number", "Product Name", "Status", "Target Yield", "Jobs Logged", "Net Hours", "Total Outlay (₹)", "Cost Per Piece (₹)"];
+      rows.push(headers.join(","));
+      groupedData.forEach(row => {
+        const costPerPc = row.yieldCount > 0 ? (row.outlay / row.yieldCount).toFixed(2) : "0.00";
+        rows.push([
+          esc(row.batchNumber), esc(row.productName), esc(row.status), row.yieldCount, row.jobs, (row.minutes / 60).toFixed(2), row.outlay.toFixed(2), costPerPc
+        ].join(","));
+      });
+    } else if (ttGroupBy === "product") {
+      headers = ["Product Name", "Active Batches Count", "Jobs Logged", "Net Hours", "Total Outlay (₹)"];
+      rows.push(headers.join(","));
+      groupedData.forEach(row => {
+        rows.push([
+          esc(row.productName), row.batchesCount, row.jobs, (row.minutes / 60).toFixed(2), row.outlay.toFixed(2)
+        ].join(","));
+      });
+    } else if (ttGroupBy === "weekly") {
+      headers = ["Week", "Jobs Logged", "Net Hours", "Total Outlay (₹)"];
+      rows.push(headers.join(","));
+      groupedData.forEach(row => {
+        rows.push([
+          esc(row.week), row.jobs, (row.minutes / 60).toFixed(2), row.outlay.toFixed(2)
+        ].join(","));
+      });
+    } else if (ttGroupBy === "monthly") {
+      headers = ["Month", "Jobs Logged", "Net Hours", "Total Outlay (₹)"];
+      rows.push(headers.join(","));
+      groupedData.forEach(row => {
+        rows.push([
+          esc(row.month), row.jobs, (row.minutes / 60).toFixed(2), row.outlay.toFixed(2)
+        ].join(","));
+      });
+    }
+
     const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `StitchLog_TimeTracking_${ttStart}_to_${ttEnd}.csv`;
+    const a = document.createElement("a"); a.href = url; a.download = `StitchLog_TimeTracking_Grouped_${ttGroupBy}_${ttStart}_to_${ttEnd}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
@@ -1622,25 +1811,35 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
       {reportMode === "timetracking" && (
         <div className="border border-[#E0DDD5] bg-white p-6 space-y-6 animate-fadeIn" data-testid="timetracking-panel">
           <div className="flex flex-wrap items-end gap-4 justify-between">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end flex-1">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end flex-1">
               <div><Label>From</Label><FieldInput type="date" value={ttStart} onChange={e => setTtStart(e.target.value)} data-testid="tt-from" /></div>
               <div><Label>To</Label><FieldInput type="date" value={ttEnd} onChange={e => setTtEnd(e.target.value)} data-testid="tt-to" /></div>
               <div><Label>Employee</Label>
-                <FieldSelect value={ttEmployee} onChange={e => setTtEmployee(e.target.value)} data-testid="tt-employee">
+                <FieldSelect value={ttEmployee} onChange={e => setTtEmployee(e.target.value)} data-testid="tt-employee" disabled={ttGroupBy !== "none" && ttGroupBy !== "employee"}>
                   <option value="">All employees</option>
                   {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </FieldSelect>
               </div>
               <div><Label>Item</Label>
-                <FieldSelect value={ttItem} onChange={e => setTtItem(e.target.value)} data-testid="tt-item">
+                <FieldSelect value={ttItem} onChange={e => setTtItem(e.target.value)} data-testid="tt-item" disabled={ttGroupBy !== "none" && ttGroupBy !== "product"}>
                   <option value="">All items</option>
                   {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
                 </FieldSelect>
               </div>
               <div><Label>Work type</Label>
-                <FieldSelect value={ttWorkType} onChange={e => setTtWorkType(e.target.value)} data-testid="tt-worktype">
+                <FieldSelect value={ttWorkType} onChange={e => setTtWorkType(e.target.value)} data-testid="tt-worktype" disabled={ttGroupBy !== "none"}>
                   <option value="">All work types</option>
                   {workTypes.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                </FieldSelect>
+              </div>
+              <div><Label>Group by</Label>
+                <FieldSelect value={ttGroupBy} onChange={e => setTtGroupBy(e.target.value)} data-testid="tt-groupby">
+                  <option value="none">None (Raw logs)</option>
+                  <option value="employee">Employee-wise</option>
+                  <option value="batch">Batch-wise</option>
+                  <option value="product">Product-wise</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
                 </FieldSelect>
               </div>
             </div>
@@ -1660,65 +1859,204 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
           </div>
 
           <div className="border border-[#E0DDD5] overflow-x-auto max-h-[55vh] overflow-y-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5] sticky top-0">
-                <tr className="font-mono uppercase tracking-[0.18em] text-[#8A877E] text-[10px]">
-                  <th className="p-2">Type</th>
-                  <th className="p-2">Date</th>
-                  <th className="p-2">Employee</th>
-                  <th className="p-2">Item</th>
-                  <th className="p-2">Batch</th>
-                  <th className="p-2">Work type</th>
-                  <th className="p-2">Start</th>
-                  <th className="p-2">End</th>
-                  <th className="p-2 text-right">Min</th>
-                  <th className="p-2 text-right">Wage/d</th>
-                  <th className="p-2 text-right">Outlay</th>
-                  <th className="p-2">Flag</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E0DDD5] font-mono">
-                {ttJobRows.map(j => {
-                  const emp = employees.find(e => e.id === j.employeeId);
-                  const wage = emp ? getWageForDate(emp, j.date) : "—";
-                  return (
-                    <tr key={j.id} className="hover:bg-[#F4F3EF]" data-testid={`tt-row-${j.id}`}>
-                      <td className="p-2"><Pill tone="primary">JOB</Pill></td>
-                      <td className="p-2">{j.date}</td>
-                      <td className="p-2 font-display font-bold">{j.employeeName || empName(j.employeeId)}</td>
-                      <td className="p-2">{j.productName || j.generalSubtype || j.rdDescription || "—"}</td>
-                      <td className="p-2">{j.batchNumber || "—"}</td>
-                      <td className="p-2">{j.workType || j.category}</td>
-                      <td className="p-2">{j.startTime}</td>
-                      <td className="p-2">{j.endTime}</td>
-                      <td className="p-2 text-right font-bold">{j.durationMinutes}</td>
-                      <td className="p-2 text-right">₹{wage}</td>
-                      <td className="p-2 text-right font-black text-[#2E8540]">₹{(j.calculatedCost ?? 0).toFixed(2)}</td>
-                      <td className="p-2">{j.isCorrected ? <Pill tone="warn">CORR</Pill> : (j.lastEditedAt ? <Pill tone="default">EDIT</Pill> : null)}</td>
-                    </tr>
-                  );
-                })}
-                {ttLeaveRows.map(l => (
-                  <tr key={l.id} className="hover:bg-[#F4F3EF] bg-[#D93025]/5 text-[#D93025]" data-testid={`tt-leave-${l.id}`}>
-                    <td className="p-2"><Pill tone="error">LEAVE</Pill></td>
-                    <td className="p-2">{l.date}</td>
-                    <td className="p-2 font-display font-bold">{l.employeeName || empName(l.employeeId)}</td>
-                    <td className="p-2">—</td>
-                    <td className="p-2">—</td>
-                    <td className="p-2">{l.leaveType}</td>
-                    <td className="p-2">{l.startTime}</td>
-                    <td className="p-2">{l.endTime}</td>
-                    <td className="p-2 text-right font-bold">{l.durationMinutes}</td>
-                    <td className="p-2 text-right">—</td>
-                    <td className="p-2 text-right">—</td>
-                    <td className="p-2">{l.isCorrected ? <Pill tone="warn">CORR</Pill> : null}</td>
+            {ttGroupBy === "none" ? (
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5] sticky top-0">
+                  <tr className="font-mono uppercase tracking-[0.18em] text-[#8A877E] text-[10px]">
+                    <th className="p-2">Type</th>
+                    <th className="p-2">Date</th>
+                    <th className="p-2">Employee</th>
+                    <th className="p-2">Item</th>
+                    <th className="p-2">Batch</th>
+                    <th className="p-2">Work type</th>
+                    <th className="p-2">Start</th>
+                    <th className="p-2">End</th>
+                    <th className="p-2 text-right">Min</th>
+                    <th className="p-2 text-right">Wage/d</th>
+                    <th className="p-2 text-right">Outlay</th>
+                    <th className="p-2">Flag</th>
                   </tr>
-                ))}
-                {ttJobRows.length === 0 && ttLeaveRows.length === 0 && (
-                  <tr><td colSpan={12} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No entries match the selected range/filters.</td></tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-[#E0DDD5] font-mono">
+                  {ttJobRows.map(j => {
+                    const emp = employees.find(e => e.id === j.employeeId);
+                    const wage = emp ? getWageForDate(emp, j.date) : "—";
+                    return (
+                      <tr key={j.id} className="hover:bg-[#F4F3EF]" data-testid={`tt-row-${j.id}`}>
+                        <td className="p-2"><Pill tone="primary">JOB</Pill></td>
+                        <td className="p-2">{j.date}</td>
+                        <td className="p-2 font-display font-bold">{j.employeeName || empName(j.employeeId)}</td>
+                        <td className="p-2">{j.productName || j.generalSubtype || j.rdDescription || "—"}</td>
+                        <td className="p-2">{j.batchNumber || "—"}</td>
+                        <td className="p-2">{j.workType || j.category}</td>
+                        <td className="p-2">{j.startTime}</td>
+                        <td className="p-2">{j.endTime}</td>
+                        <td className="p-2 text-right font-bold">{j.durationMinutes}</td>
+                        <td className="p-2 text-right">₹{wage}</td>
+                        <td className="p-2 text-right font-black text-[#2E8540]">₹{(j.calculatedCost ?? 0).toFixed(2)}</td>
+                        <td className="p-2">{j.isCorrected ? <Pill tone="warn">CORR</Pill> : (j.lastEditedAt ? <Pill tone="default">EDIT</Pill> : null)}</td>
+                      </tr>
+                    );
+                  })}
+                  {ttLeaveRows.map(l => (
+                    <tr key={l.id} className="hover:bg-[#F4F3EF] bg-[#D93025]/5 text-[#D93025]" data-testid={`tt-leave-${l.id}`}>
+                      <td className="p-2"><Pill tone="error">LEAVE</Pill></td>
+                      <td className="p-2">{l.date}</td>
+                      <td className="p-2 font-display font-bold">{l.employeeName || empName(l.employeeId)}</td>
+                      <td className="p-2">—</td>
+                      <td className="p-2">—</td>
+                      <td className="p-2">{l.leaveType}</td>
+                      <td className="p-2">{l.startTime}</td>
+                      <td className="p-2">{l.endTime}</td>
+                      <td className="p-2 text-right font-bold">{l.durationMinutes}</td>
+                      <td className="p-2 text-right">—</td>
+                      <td className="p-2 text-right">—</td>
+                      <td className="p-2">{l.isCorrected ? <Pill tone="warn">CORR</Pill> : null}</td>
+                    </tr>
+                  ))}
+                  {ttJobRows.length === 0 && ttLeaveRows.length === 0 && (
+                    <tr><td colSpan={12} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No entries match the selected range/filters.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            ) : ttGroupBy === "employee" ? (
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5] sticky top-0">
+                  <tr className="font-mono uppercase tracking-[0.18em] text-[#8A877E] text-[10px]">
+                    <th className="p-2">Employee Name</th>
+                    <th className="p-2 text-right">Jobs Logged</th>
+                    <th className="p-2 text-right">Leaves Filed</th>
+                    <th className="p-2 text-right">Net Minutes</th>
+                    <th className="p-2 text-right">Net Hours</th>
+                    <th className="p-2 text-right">Total Outlay</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E0DDD5] font-mono">
+                  {groupedData.map(row => (
+                    <tr key={row.id} className="hover:bg-[#F4F3EF]">
+                      <td className="p-2 font-display font-bold">{row.name}</td>
+                      <td className="p-2 text-right">{row.jobs}</td>
+                      <td className="p-2 text-right">{row.leaves}</td>
+                      <td className="p-2 text-right">{row.minutes}</td>
+                      <td className="p-2 text-right">{(row.minutes / 60).toFixed(2)} h</td>
+                      <td className="p-2 text-right font-black text-[#2E8540]">₹{row.outlay.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {groupedData.length === 0 && (
+                    <tr><td colSpan={6} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No employee data to display.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            ) : ttGroupBy === "batch" ? (
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5] sticky top-0">
+                  <tr className="font-mono uppercase tracking-[0.18em] text-[#8A877E] text-[10px]">
+                    <th className="p-2">Batch Number</th>
+                    <th className="p-2">Product Name</th>
+                    <th className="p-2">Status</th>
+                    <th className="p-2 text-right">Target Yield</th>
+                    <th className="p-2 text-right">Jobs Logged</th>
+                    <th className="p-2 text-right">Net Hours</th>
+                    <th className="p-2 text-right">Total Outlay</th>
+                    <th className="p-2 text-right">Cost/pc</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E0DDD5] font-mono">
+                  {groupedData.map(row => {
+                    const costPerPc = row.yieldCount > 0 ? (row.outlay / row.yieldCount).toFixed(2) : "0.00";
+                    return (
+                      <tr key={row.id} className="hover:bg-[#F4F3EF]">
+                        <td className="p-2 font-mono font-bold text-[#0028A8]">{row.batchNumber}</td>
+                        <td className="p-2 font-display font-bold">{row.productName}</td>
+                        <td className="p-2"><Pill tone={row.status === "Active" ? "success" : row.status === "Only Packing Pending" ? "warn" : "default"}>{row.status}</Pill></td>
+                        <td className="p-2 text-right">{row.yieldCount}</td>
+                        <td className="p-2 text-right">{row.jobs}</td>
+                        <td className="p-2 text-right">{(row.minutes / 60).toFixed(2)} h</td>
+                        <td className="p-2 text-right font-black text-[#2E8540]">₹{row.outlay.toFixed(2)}</td>
+                        <td className="p-2 text-right font-black text-[#0028A8]">₹{costPerPc}</td>
+                      </tr>
+                    );
+                  })}
+                  {groupedData.length === 0 && (
+                    <tr><td colSpan={8} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No batch data to display.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            ) : ttGroupBy === "product" ? (
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5] sticky top-0">
+                  <tr className="font-mono uppercase tracking-[0.18em] text-[#8A877E] text-[10px]">
+                    <th className="p-2">Product Name</th>
+                    <th className="p-2 text-right">Active Batches</th>
+                    <th className="p-2 text-right">Jobs Logged</th>
+                    <th className="p-2 text-right">Net Hours</th>
+                    <th className="p-2 text-right">Total Outlay</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E0DDD5] font-mono">
+                  {groupedData.map(row => (
+                    <tr key={row.id} className="hover:bg-[#F4F3EF]">
+                      <td className="p-2 font-display font-bold">{row.productName}</td>
+                      <td className="p-2 text-right">{row.batchesCount}</td>
+                      <td className="p-2 text-right">{row.jobs}</td>
+                      <td className="p-2 text-right">{(row.minutes / 60).toFixed(2)} h</td>
+                      <td className="p-2 text-right font-black text-[#2E8540]">₹{row.outlay.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {groupedData.length === 0 && (
+                    <tr><td colSpan={5} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No product data to display.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            ) : ttGroupBy === "weekly" ? (
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5] sticky top-0">
+                  <tr className="font-mono uppercase tracking-[0.18em] text-[#8A877E] text-[10px]">
+                    <th className="p-2">Week</th>
+                    <th className="p-2 text-right">Jobs Logged</th>
+                    <th className="p-2 text-right">Net Hours</th>
+                    <th className="p-2 text-right">Total Outlay</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E0DDD5] font-mono">
+                  {groupedData.map(row => (
+                    <tr key={row.id} className="hover:bg-[#F4F3EF]">
+                      <td className="p-2 font-mono font-bold">{row.week}</td>
+                      <td className="p-2 text-right">{row.jobs}</td>
+                      <td className="p-2 text-right">{(row.minutes / 60).toFixed(2)} h</td>
+                      <td className="p-2 text-right font-black text-[#2E8540]">₹{row.outlay.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {groupedData.length === 0 && (
+                    <tr><td colSpan={4} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No weekly data to display.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5] sticky top-0">
+                  <tr className="font-mono uppercase tracking-[0.18em] text-[#8A877E] text-[10px]">
+                    <th className="p-2">Month</th>
+                    <th className="p-2 text-right">Jobs Logged</th>
+                    <th className="p-2 text-right">Net Hours</th>
+                    <th className="p-2 text-right">Total Outlay</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E0DDD5] font-mono">
+                  {groupedData.map(row => (
+                    <tr key={row.id} className="hover:bg-[#F4F3EF]">
+                      <td className="p-2 font-mono font-bold">{row.month}</td>
+                      <td className="p-2 text-right">{row.jobs}</td>
+                      <td className="p-2 text-right">{(row.minutes / 60).toFixed(2)} h</td>
+                      <td className="p-2 text-right font-black text-[#2E8540]">₹{row.outlay.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {groupedData.length === 0 && (
+                    <tr><td colSpan={4} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No monthly data to display.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
