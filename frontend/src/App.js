@@ -722,12 +722,12 @@ function BatchesManagementView({ items, batches, setBatches }) {
             </FieldSelect>
           </div>
           <div><Label>Batch serial</Label><FieldInput value={batchNumber} onChange={e => setBatchNumber(e.target.value)} required placeholder="BATCH-2026-NNN" className="font-mono uppercase" data-testid="batch-serial-input" /></div>
+          <div><Label>Remark</Label><FieldInput value={remark} onChange={e => setRemark(e.target.value)} placeholder="e.g. Red, Leather, XL" data-testid="batch-remark-input" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><Label>Target yield</Label><FieldInput type="number" value={yieldCount} onChange={e => setYieldCount(Number(e.target.value))} required className="font-mono no-spin" data-testid="batch-yield-input" /></div>
             <div><Label>Start date</Label><FieldInput type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required data-testid="batch-start-input" /></div>
           </div>
           <div><Label>Material Cost (₹)</Label><FieldInput type="number" value={materialCost} onChange={e => setMaterialCost(e.target.value)} placeholder="0.00" className="font-mono no-spin" data-testid="batch-material-cost-input" /></div>
-          <div><Label>Remark</Label><FieldInput value={remark} onChange={e => setRemark(e.target.value)} placeholder="e.g. Red, Leather, XL" data-testid="batch-remark-input" /></div>
           <Btn type="submit" tone="ink" className="w-full" testid="batch-submit"><Plus size={14} /> Deploy batch</Btn>
         </form>
         <div className="border border-[#E0DDD5] bg-white xl:col-span-2 overflow-x-auto" data-testid="batches-table">
