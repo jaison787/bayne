@@ -2369,6 +2369,115 @@ export default function App() {
     ].forEach(k => { if (localStorage.getItem(k) !== null) localStorage.removeItem(k); });
   }, []);
 
+  useEffect(() => {
+    if (localStorage.getItem("sl_simulated_v2")) return;
+
+    // Pick 12 active employees
+    const activeEmps = employees.filter(e => e.active).slice(0, 12);
+    
+    // Create 5 items
+    const itemsList = [
+      { id: "item_blackgymbag", name: "Blackgymbag" },
+      { id: "item_cream_ladies_bag", name: "Cream Ladies bag" },
+      { id: "item_messenger_bag", name: "Messenger bag" },
+      { id: "item_brown_duffle", name: "Brown Duffle" },
+      { id: "item_pinkgymbag", name: "Pinkgymbag" }
+    ];
+    
+    setItems(prev => {
+      let next = [...prev];
+      itemsList.forEach(it => {
+        if (!next.some(x => x.id === it.id)) next.push(it);
+      });
+      return next;
+    });
+
+    // Create 5 batches
+    const newBatches = [
+      { id: "batch_sim_a", itemId: "item_blackgymbag", batchNumber: "BATCH-2026-A", yieldCount: 100, materialCost: 500, status: "Completed", startDate: "2026-06-25", endDate: "2026-06-29", remark: "Red Accent" },
+      { id: "batch_sim_b", itemId: "item_cream_ladies_bag", batchNumber: "BATCH-2026-B", yieldCount: 100, materialCost: 650, status: "Active", startDate: "2026-06-25", endDate: "", remark: "Standard" },
+      { id: "batch_sim_c", itemId: "item_messenger_bag", batchNumber: "BATCH-2026-C", yieldCount: 100, materialCost: 400, status: "Only Packing Pending", startDate: "2026-06-26", endDate: "", remark: "Nylon Strap" },
+      { id: "batch_sim_d", itemId: "item_brown_duffle", batchNumber: "BATCH-2026-D", yieldCount: 100, materialCost: 800, status: "Active", startDate: "2026-06-27", endDate: "", remark: "Premium Leather" },
+      { id: "batch_sim_e", itemId: "item_pinkgymbag", batchNumber: "BATCH-2026-E", yieldCount: 100, materialCost: 500, status: "Active", startDate: "2026-06-28", endDate: "", remark: "Small size" }
+    ];
+    
+    setBatches(prev => {
+      let next = [...prev];
+      newBatches.forEach(b => {
+        if (!next.some(x => x.id === b.id)) next.unshift(b);
+      });
+      return next;
+    });
+
+    // Generate job cards over 5 days (25th to 29th)
+    const dates = ["2026-06-25", "2026-06-26", "2026-06-27", "2026-06-28", "2026-06-29"];
+    const workTypesList = [
+      { id: "wt_stitching", name: "Stitching" },
+      { id: "wt_checking", name: "Checking" },
+      { id: "wt_cutting", name: "Cutting" },
+      { id: "wt_packing", name: "Packing" }
+    ];
+
+    const generatedCards = [];
+    let jobIdCounter = Date.now();
+
+    dates.forEach((dateStr, dateIdx) => {
+      activeEmps.forEach((emp, empIdx) => {
+        const wage = getWageForDate(emp, dateStr);
+        
+        const batch1 = newBatches[(empIdx + dateIdx) % 5];
+        const batch2 = newBatches[(empIdx + dateIdx + 1) % 5];
+
+        // Morning Job (Stitching / Cutting)
+        const wt1 = (empIdx % 2 === 0) ? workTypesList[0] : workTypesList[2];
+        const mins1 = 240;
+        generatedCards.push({
+          id: `job_sim_${jobIdCounter++}`,
+          employeeId: emp.id,
+          employeeName: emp.name,
+          date: dateStr,
+          category: "Production",
+          startTime: "09:00",
+          endTime: "13:00",
+          durationMinutes: mins1,
+          calculatedCost: calculateJobCost(wage, mins1),
+          itemId: batch1.itemId,
+          productName: itemsList.find(x => x.id === batch1.itemId).name,
+          batchId: batch1.id,
+          batchNumber: batch1.batchNumber,
+          workTypeId: wt1.id,
+          workType: wt1.name,
+          isCorrected: false
+        });
+
+        // Afternoon Job (Stitching / Checking / Packing)
+        const wt2 = (empIdx % 3 === 0) ? workTypesList[0] : (empIdx % 3 === 1 ? workTypesList[1] : workTypesList[3]);
+        const mins2 = 240;
+        generatedCards.push({
+          id: `job_sim_${jobIdCounter++}`,
+          employeeId: emp.id,
+          employeeName: emp.name,
+          date: dateStr,
+          category: "Production",
+          startTime: "14:00",
+          endTime: "18:00",
+          durationMinutes: mins2,
+          calculatedCost: calculateJobCost(wage, mins2),
+          itemId: batch2.itemId,
+          productName: itemsList.find(x => x.id === batch2.itemId).name,
+          batchId: batch2.id,
+          batchNumber: batch2.batchNumber,
+          workTypeId: wt2.id,
+          workType: wt2.name,
+          isCorrected: false
+        });
+      });
+    });
+
+    setJobCards(prev => [...generatedCards, ...prev]);
+    localStorage.setItem("sl_simulated_v2", "true");
+  }, [employees]);
+
   useEffect(() => { localStorage.setItem("sl_emp_v6", JSON.stringify(employees)); }, [employees]);
   useEffect(() => { localStorage.setItem("sl_items_v1", JSON.stringify(items)); }, [items]);
   useEffect(() => { localStorage.setItem("sl_batches_v1", JSON.stringify(batches)); }, [batches]);
