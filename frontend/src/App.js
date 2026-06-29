@@ -1411,6 +1411,7 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
   const [editingCardId, setEditingCardId] = useState(null);
   const [correctedStart, setCorrectedStart] = useState("09:00");
   const [correctedEnd, setCorrectedEnd] = useState("17:00");
+  const [expandedBatchId, setExpandedBatchId] = useState(null);
 
   const closed = jobCards.filter(j => j.endTime);
   const itemName = (id) => items.find(i => i.id === id)?.name || "—";
@@ -1824,58 +1825,176 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
 
       {reportMode === "costing" && (
         <div className="space-y-5 animate-fadeIn" data-testid="costing-panel">
-          {batches.length === 0 && <div className="border border-[#E0DDD5] bg-white p-6 font-mono text-xs italic text-[#8A877E]">No batches deployed yet. Open batches from Admin → Batches to populate this ledger.</div>}
-          {batches.map(b => {
-            const m = closed.filter(j => j.batchId === b.id);
-            const t = m.reduce((s, c) => s + (c.calculatedCost || 0), 0);
-            const netH = m.reduce((s, c) => s + (c.durationMinutes || 0), 0) / 60;
-            return (
-              <div key={b.id} className="border border-[#E0DDD5] bg-white p-6 space-y-4" data-testid={`cost-card-${b.id}`}>
-                <div className="flex flex-wrap justify-between items-start gap-4 border-b border-[#E0DDD5] pb-3">
-                  <div>
-                    <h4 className="font-display font-black text-2xl tracking-tighter">{itemName(b.itemId)}</h4>
-                    <p className="font-mono text-xs text-[#8A877E] mt-1">{b.batchNumber}{b.remark ? ` (${b.remark})` : ''} · {b.startDate} → {b.endDate || "Running"}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-[#8A877E]">Labor ledger</p>
-                    <p className="font-display font-black text-3xl tracking-tighter text-[#2E8540]">₹{t.toFixed(2)}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 border border-[#E0DDD5] bg-[#F4F3EF] p-4">
-                  <div><p className="font-mono text-[10px] uppercase text-[#8A877E]">Yield</p><p className="font-display font-bold text-lg">{b.yieldCount} pcs</p></div>
-                  <div><p className="font-mono text-[10px] uppercase text-[#8A877E]">Per unit</p><p className="font-display font-bold text-lg text-[#0028A8]">₹{b.yieldCount > 0 ? (t / b.yieldCount).toFixed(2) : "0.00"}</p></div>
-                  <div><p className="font-mono text-[10px] uppercase text-[#8A877E]">Net hours</p><p className="font-display font-bold text-lg">{netH.toFixed(1)} h</p></div>
-                  <div><p className="font-mono text-[10px] uppercase text-[#8A877E]">Closed cards</p><p className="font-display font-bold text-lg">{m.length}</p></div>
-                </div>
-                {m.length > 0 && (
-                  <div className="space-y-1.5">
-                    {m.map(j => (
-                      <div key={j.id} className="border border-[#E0DDD5] p-3 flex flex-col sm:flex-row justify-between sm:items-center gap-3" data-testid={`cost-job-${j.id}`}>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap"><span className="font-display font-bold">{j.employeeName}</span><span className="font-mono text-xs text-[#8A877E]">({j.date})</span>{j.workType && <Pill tone="primary">{j.workType}</Pill>}{j.isCorrected && <Pill tone="error">⚠ Corrected</Pill>}</div>
-                          <p className="font-mono text-xs text-[#8A877E] mt-0.5">{j.startTime} → {j.endTime} · {j.durationMinutes} net min</p>
-                        </div>
-                        {editingCardId === j.id ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <TimePicker value={correctedStart} onChange={setCorrectedStart} testid={`corr-start-${j.id}`} />
-                            <span className="font-mono text-xs text-[#8A877E]">to</span>
-                            <TimePicker value={correctedEnd} onChange={setCorrectedEnd} testid={`corr-end-${j.id}`} />
-                            <Btn tone="primary" onClick={() => applyCorrection(j.id)} className="!px-3 !py-1.5" testid={`corr-commit-${j.id}`}><Save size={12} /></Btn>
-                            <Btn tone="paper" onClick={() => setEditingCardId(null)} className="!px-3 !py-1.5"><X size={12} /></Btn>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-4">
-                            <span className="font-display font-black text-lg text-[#2E8540]">₹{j.calculatedCost?.toFixed(2)}</span>
-                            <Btn tone="paper" onClick={() => { setEditingCardId(j.id); setCorrectedStart(j.startTime); setCorrectedEnd(j.endTime); }} testid={`corr-edit-${j.id}`}><Edit3 size={12} /> Override</Btn>
-                          </div>
+          {batches.length === 0 ? (
+            <div className="border border-[#E0DDD5] bg-white p-6 font-mono text-xs italic text-[#8A877E]">No batches deployed yet. Open batches from Admin → Batches to populate this ledger.</div>
+          ) : (
+            <div className="border border-[#E0DDD5] bg-white overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5]">
+                  <tr className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#8A877E]">
+                    <th className="p-3 w-10"></th>
+                    <th className="p-3">Batch Number</th>
+                    <th className="p-3">Item Product</th>
+                    <th className="p-3 text-right">Yield</th>
+                    <th className="p-3 text-right">Net Hours</th>
+                    <th className="p-3 text-right">Labor Cost</th>
+                    <th className="p-3">State</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E0DDD5]">
+                  {batches.map(b => {
+                    const m = closed.filter(j => j.batchId === b.id);
+                    const t = m.reduce((s, c) => s + (c.calculatedCost || 0), 0);
+                    const netH = m.reduce((s, c) => s + (c.durationMinutes || 0), 0) / 60;
+                    const isExpanded = expandedBatchId === b.id;
+
+                    // Work type breakdown
+                    const breakdown = {};
+                    m.forEach(j => {
+                      const wt = j.workType || "Other/General";
+                      if (!breakdown[wt]) {
+                        breakdown[wt] = { hours: 0, cost: 0, count: 0 };
+                      }
+                      breakdown[wt].hours += (j.durationMinutes || 0) / 60;
+                      breakdown[wt].cost += j.calculatedCost || 0;
+                      breakdown[wt].count += 1;
+                    });
+
+                    return (
+                      <React.Fragment key={b.id}>
+                        <tr 
+                          onClick={() => setExpandedBatchId(isExpanded ? null : b.id)}
+                          className="hover:bg-[#F4F3EF] transition-colors cursor-pointer"
+                          data-testid={`cost-row-${b.id}`}
+                        >
+                          <td className="p-3 text-center">
+                            <span className="font-mono text-xs font-bold text-[#8A877E]">
+                              {isExpanded ? "▼" : "▶"}
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono font-bold text-[#0028A8]">{b.batchNumber}{b.remark ? ` (${b.remark})` : ''}</td>
+                          <td className="p-3 font-display font-bold">{itemName(b.itemId)}</td>
+                          <td className="p-3 font-mono text-right">{b.yieldCount} pcs</td>
+                          <td className="p-3 font-mono text-right">{netH.toFixed(1)} h</td>
+                          <td className="p-3 font-mono text-right font-bold text-[#2E8540]">₹{t.toFixed(2)}</td>
+                          <td className="p-3">
+                            <Pill tone={b.status === "Active" ? "success" : b.status === "Only Packing Pending" ? "warn" : "default"}>
+                              {b.status}
+                            </Pill>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-[#F4F3EF]/30" data-testid={`cost-expanded-${b.id}`}>
+                            <td colSpan={7} className="p-6 space-y-6">
+                              
+                              {/* Details Grid */}
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="border border-[#E0DDD5] bg-white p-4">
+                                  <p className="font-mono text-[10px] uppercase text-[#8A877E]">Product Name</p>
+                                  <p className="font-display font-bold text-lg mt-1">{itemName(b.itemId)}</p>
+                                </div>
+                                <div className="border border-[#E0DDD5] bg-white p-4">
+                                  <p className="font-mono text-[10px] uppercase text-[#8A877E]">Accrued Labor Cost</p>
+                                  <p className="font-display font-bold text-lg text-[#2E8540] mt-1">₹{t.toFixed(2)}</p>
+                                  <p className="font-mono text-[9px] text-[#8A877E] mt-0.5">
+                                    ₹{b.yieldCount > 0 ? (t / b.yieldCount).toFixed(2) : "0.00"} per unit
+                                  </p>
+                                </div>
+                                <div className="border border-[#E0DDD5] bg-white p-4">
+                                  <p className="font-mono text-[10px] uppercase text-[#8A877E]">Material Cost</p>
+                                  <p className="font-display font-bold text-lg text-[#E84824] mt-1">₹{(b.materialCost || 0).toFixed(2)}</p>
+                                  <p className="font-mono text-[9px] text-[#8A877E] mt-0.5">
+                                    ₹{b.yieldCount > 0 ? ((b.materialCost || 0) / b.yieldCount).toFixed(2) : "0.00"} per unit
+                                  </p>
+                                </div>
+                                <div className="border border-[#E0DDD5] bg-white p-4">
+                                  <p className="font-mono text-[10px] uppercase text-[#8A877E]">Total Cost (Est.)</p>
+                                  <p className="font-display font-bold text-lg mt-1">₹{(t + (b.materialCost || 0)).toFixed(2)}</p>
+                                  <p className="font-mono text-[9px] text-[#8A877E] mt-0.5">
+                                    ₹{b.yieldCount > 0 ? ((t + (b.materialCost || 0)) / b.yieldCount).toFixed(2) : "0.00"} per unit
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Work Type Breakdown */}
+                              <div>
+                                <h5 className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#8A877E] mb-3">Work Type Breakdown</h5>
+                                {Object.keys(breakdown).length === 0 ? (
+                                  <p className="font-mono text-xs italic text-[#8A877E]">No work types logged.</p>
+                                ) : (
+                                  <div className="border border-[#E0DDD5] bg-white overflow-hidden">
+                                    <table className="w-full text-left text-xs">
+                                      <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5] font-mono text-[9px] uppercase tracking-wider text-[#8A877E]">
+                                        <tr>
+                                          <th className="p-2.5">Work Type</th>
+                                          <th className="p-2.5 text-right">Hours Logged</th>
+                                          <th className="p-2.5 text-right">Labor Outlay</th>
+                                          <th className="p-2.5 text-right">Jobs Logged</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-[#E0DDD5]">
+                                        {Object.entries(breakdown).map(([wt, data]) => (
+                                          <tr key={wt} className="hover:bg-[#F4F3EF]/50">
+                                            <td className="p-2.5 font-bold">{wt}</td>
+                                            <td className="p-2.5 text-right font-mono">{data.hours.toFixed(1)} h</td>
+                                            <td className="p-2.5 text-right font-mono text-[#2E8540]">₹{data.cost.toFixed(2)}</td>
+                                            <td className="p-2.5 text-right font-mono">{data.count}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Jobs List (With Override option) */}
+                              <div>
+                                <h5 className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#8A877E] mb-3">Logged Job Cards ({m.length})</h5>
+                                {m.length === 0 ? (
+                                  <p className="font-mono text-xs italic text-[#8A877E]">No jobs logged yet.</p>
+                                ) : (
+                                  <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                                    {m.map(j => (
+                                      <div key={j.id} className="border border-[#E0DDD5] bg-white p-3 flex flex-col sm:flex-row justify-between sm:items-center gap-3" data-testid={`cost-job-${j.id}`}>
+                                        <div>
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-display font-bold">{j.employeeName}</span>
+                                            <span className="font-mono text-xs text-[#8A877E]">({j.date})</span>
+                                            {j.workType && <Pill tone="primary">{j.workType}</Pill>}
+                                            {j.isCorrected && <Pill tone="error">⚠ Corrected</Pill>}
+                                          </div>
+                                          <p className="font-mono text-xs text-[#8A877E] mt-0.5">{j.startTime} → {j.endTime} · {j.durationMinutes} net min</p>
+                                        </div>
+                                        {editingCardId === j.id ? (
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <TimePicker value={correctedStart} onChange={setCorrectedStart} testid={`corr-start-${j.id}`} />
+                                            <span className="font-mono text-xs text-[#8A877E]">to</span>
+                                            <TimePicker value={correctedEnd} onChange={setCorrectedEnd} testid={`corr-end-${j.id}`} />
+                                            <Btn tone="primary" onClick={() => applyCorrection(j.id)} className="!px-3 !py-1.5" testid={`corr-commit-${j.id}`}><Save size={12} /></Btn>
+                                            <Btn tone="paper" onClick={() => setEditingCardId(null)} className="!px-3 !py-1.5"><X size={12} /></Btn>
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center gap-4">
+                                            <span className="font-display font-black text-lg text-[#2E8540]">₹{j.calculatedCost?.toFixed(2)}</span>
+                                            <Btn tone="paper" onClick={() => { setEditingCardId(j.id); setCorrectedStart(j.startTime); setCorrectedEnd(j.endTime); }} testid={`corr-edit-${j.id}`}><Edit3 size={12} /> Override</Btn>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                            </td>
+                          </tr>
                         )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
