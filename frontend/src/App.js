@@ -48,13 +48,16 @@ const INITIAL_ITEMS = [
   "Cream black pocket", "Cream Ladies bag", "DogBag Green", "DogBag Green (L)",
   "Ease Office Tote", "Fallaka bag", "Fanny Pack", "Field tote bag",
   "FileBag (L)", "Flower bag", "Fukka bag", "Gallonbottle",
-  "Grey DogBag", "Grey DogBag (L)", "GreyDuffle", "Messenger bag",
+  "Grey DogBag", "Grey DogBag (L)", "GreyDuffle", "Lunch Bag", "Messenger bag",
   "Metal Zib compartment", "Mini Gym Black", "Mokka bag", "Pinkgymbag",
   "Sample", "Shifting", "Sidegymbag colour", "Weekender bag",
   "White Rain Cover", "Women travel bag",
 ].map(name => ({ id: "item_" + slug(name), name }));
 
-const INITIAL_BATCHES = []; // no open running batches at present — admin creates as needed
+const INITIAL_BATCHES = [
+  { id: "batch_lunch_bag_1zip", itemId: "item_lunch_bag", batchNumber: "BATCH-2026-L01", yieldCount: 100, materialCost: 500, status: "Active", startDate: "2026-06-27", endDate: "", remark: "1-Zip version" },
+  { id: "batch_lunch_bag_2zip", itemId: "item_lunch_bag", batchNumber: "BATCH-2026-L02", yieldCount: 100, materialCost: 650, status: "Active", startDate: "2026-06-27", endDate: "", remark: "2-Zip version" }
+];
 
 const INITIAL_WORKTYPES = [
   "Checking", "Cleaning", "Counting", "Leave", "Loading", "Marking",
@@ -2367,6 +2370,86 @@ export default function App() {
       "sl_prod_v6", "sl_jobs_v6", "sl_lv_v6",
       "sl_prod_v7", "sl_jobs_v7", "sl_lv_v7",
     ].forEach(k => { if (localStorage.getItem(k) !== null) localStorage.removeItem(k); });
+
+    // Inject Lunch Bag item and mock batches if they don't exist in user's active session
+    setItems(prev => {
+      if (!prev.some(i => i.id === "item_lunch_bag")) {
+        return [...prev, { id: "item_lunch_bag", name: "Lunch Bag" }];
+      }
+      return prev;
+    });
+    setBatches(prev => {
+      if (!prev.some(b => b.id === "batch_lunch_bag_1zip")) {
+        return [
+          { id: "batch_lunch_bag_1zip", itemId: "item_lunch_bag", batchNumber: "BATCH-2026-L01", yieldCount: 100, materialCost: 500, status: "Active", startDate: "2026-06-27", endDate: "", remark: "1-Zip version" },
+          { id: "batch_lunch_bag_2zip", itemId: "item_lunch_bag", batchNumber: "BATCH-2026-L02", yieldCount: 100, materialCost: 650, status: "Active", startDate: "2026-06-27", endDate: "", remark: "2-Zip version" },
+          ...prev
+        ];
+      }
+      return prev;
+    });
+    setJobCards(prev => {
+      if (!prev.some(j => j.batchId === "batch_lunch_bag_1zip")) {
+        return [
+          {
+            id: "job_mock_1",
+            employeeId: "emp_arbaz",
+            employeeName: "Arbaz",
+            date: "2026-06-28",
+            category: "Production",
+            startTime: "09:00",
+            endTime: "15:00",
+            durationMinutes: 300,
+            calculatedCost: 150.00,
+            itemId: "item_lunch_bag",
+            productName: "Lunch Bag",
+            batchId: "batch_lunch_bag_1zip",
+            batchNumber: "BATCH-2026-L01",
+            workTypeId: "wt_stitching",
+            workType: "Stitching",
+            isCorrected: false
+          },
+          {
+            id: "job_mock_2",
+            employeeId: "emp_arshad",
+            employeeName: "Arshad",
+            date: "2026-06-28",
+            category: "Production",
+            startTime: "10:00",
+            endTime: "17:00",
+            durationMinutes: 360,
+            calculatedCost: 294.55,
+            itemId: "item_lunch_bag",
+            productName: "Lunch Bag",
+            batchId: "batch_lunch_bag_1zip",
+            batchNumber: "BATCH-2026-L01",
+            workTypeId: "wt_checking",
+            workType: "Checking",
+            isCorrected: false
+          },
+          {
+            id: "job_mock_3",
+            employeeId: "emp_arbaz",
+            employeeName: "Arbaz",
+            date: "2026-06-28",
+            category: "Production",
+            startTime: "09:00",
+            endTime: "18:00",
+            durationMinutes: 480,
+            calculatedCost: 240.00,
+            itemId: "item_lunch_bag",
+            productName: "Lunch Bag",
+            batchId: "batch_lunch_bag_2zip",
+            batchNumber: "BATCH-2026-L02",
+            workTypeId: "wt_stitching",
+            workType: "Stitching",
+            isCorrected: false
+          },
+          ...prev
+        ];
+      }
+      return prev;
+    });
   }, []);
 
   useEffect(() => { localStorage.setItem("sl_emp_v6", JSON.stringify(employees)); }, [employees]);
