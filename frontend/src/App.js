@@ -300,7 +300,7 @@ function WorkerKioskScreen({ employees, setView, onLogin }) {
   return (
     <div className="kiosk min-h-screen bg-ink text-[#F4F3EF] grid md:grid-cols-5" data-testid="worker-login-screen">
       <div className="md:col-span-3 hidden md:block relative overflow-hidden border-r border-white/10">
-        <img alt="" src="https://images.pexels.com/photos/31047167/pexels-photo-31047167.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940" className="absolute inset-0 w-full h-full object-cover opacity-50" />
+        <img alt="" src="https://www.pexels.com/photo/black-and-silver-laptop-computer-on-table-4621659/" className="absolute inset-0 w-full h-full object-cover opacity-50" />
         <div className="absolute inset-0 bg-gradient-to-tr from-[#0d0d0d] via-transparent to-[#E84824]/20" />
         <div className="absolute bottom-0 left-0 right-0 p-10">
           <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[#E84824]">Floor terminal</p>
@@ -335,32 +335,82 @@ function WorkerKioskScreen({ employees, setView, onLogin }) {
 ============================================================================ */
 
 function AdminDashboardView({ jobCards, employees, batches, leaves }) {
+  const [expandedBatch, setExpandedBatch] = useState(null);
+  const [unitEconomicsDate, setUnitEconomicsDate] = useState(TODAY);
   const open = jobCards.filter(j => !j.endTime);
   const closed = jobCards.filter(j => j.endTime);
   const totalCost = closed.reduce((s, c) => s + (c.calculatedCost || 0), 0);
   const todayCost = closed.filter(j => j.date === TODAY).reduce((s, c) => s + (c.calculatedCost || 0), 0);
   const todayMin = closed.filter(j => j.date === TODAY).reduce((s, c) => s + (c.durationMinutes || 0), 0);
 
+  const totalMaterialCost = batches.reduce((s, b) => s + (b.materialCost || 0), 0);
+  const totalOverallCost = totalCost + totalMaterialCost;
+
   const kpis = [
     { label: "Open Cards", value: open.length, accent: "#E8A317", testid: "kpi-open-cards" },
     { label: "Active Force", value: employees.filter(e => e.active).length, accent: "#0028A8", testid: "kpi-active-force" },
     { label: "Active Batches", value: batches.filter(b => b.status === "Active").length, accent: "#E84824", testid: "kpi-active-lots" },
     { label: "Gross Outlay", value: `₹${totalCost.toFixed(2)}`, accent: "#2E8540", testid: "kpi-gross-outlay" },
+    { label: "Total Mat. Cost", value: `₹${totalMaterialCost.toFixed(2)}`, accent: "#9b6c00", testid: "kpi-material-cost" },
+    { label: "Total Cost", value: `₹${totalOverallCost.toFixed(2)}`, accent: "#0028A8", testid: "kpi-total-cost" },
   ];
 
+  const completedBatchesOnDate = batches.filter(b => b.status === "Completed" && b.endDate === unitEconomicsDate);
   return (
     <div className="space-y-10" data-testid="admin-dashboard-view">
       <header>
         <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[#8A877E]">Control desk · live</p>
         <h2 className="font-display font-black text-4xl tracking-tighter mt-2">Workshop overview.</h2>
       </header>
-      <div className="grid grid-cols-2 lg:grid-cols-4 border border-[#E0DDD5] divide-x divide-[#E0DDD5]">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 border border-[#E0DDD5] divide-x divide-[#E0DDD5] bg-white">
         {kpis.map(k => (
           <div key={k.label} className="p-6 bg-white" data-testid={k.testid}>
             <div className="flex items-center justify-between"><span className="font-mono text-[10px] uppercase tracking-[0.25em] text-[#8A877E]">{k.label}</span><span className="block w-2 h-2" style={{ background: k.accent }} /></div>
             <p className="font-display font-black text-4xl tracking-tighter mt-4">{k.value}</p>
           </div>
         ))}
+      </div>
+      <div className="border border-[#E0DDD5] bg-white p-6" data-testid="per-unit-breakdown">
+        <div className="flex items-center justify-between border-b border-[#E0DDD5] pb-3 mb-4">
+          <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[#8A877E]">Unit Economics</p>
+          <FieldInput type="date" value={unitEconomicsDate} onChange={e => { setUnitEconomicsDate(e.target.value); setExpandedBatch(null); }} className="max-w-[140px] font-mono text-xs !py-1 !px-2" />
+        </div>
+        {completedBatchesOnDate.length === 0 ? (
+          <p className="font-mono text-xs text-[#8A877E] italic">No batches completed on this date.</p>
+        ) : (
+          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+            {completedBatchesOnDate.map(b => {
+              const bYield = b.yieldCount || 0;
+              const bMatCost = b.materialCost || 0;
+              const bJobs = jobCards.filter(j => j.batchId === b.id && j.endTime);
+              const bLaborCost = bJobs.reduce((s, j) => s + (j.calculatedCost || 0), 0);
+              const bHours = bJobs.reduce((s, j) => s + (j.durationMinutes || 0), 0) / 60;
+              
+              const lPerUnit = bYield > 0 ? (bLaborCost / bYield).toFixed(2) : "0.00";
+              const mPerUnit = bYield > 0 ? (bMatCost / bYield).toFixed(2) : "0.00";
+              const hPerUnit = bYield > 0 ? (bHours / bYield).toFixed(2) : "0.00";
+              
+              const isExpanded = expandedBatch === b.id;
+              
+              return (
+                <div key={b.id} className="border border-[#E0DDD5] rounded overflow-hidden">
+                  <button onClick={() => setExpandedBatch(isExpanded ? null : b.id)} className="w-full text-left px-4 py-3 bg-[#F4F3EF] hover:bg-[#E0DDD5] transition-colors flex items-center justify-between">
+                    <span className="font-mono font-bold text-[#0028A8]">{b.batchNumber}</span>
+                    <span className="font-mono text-xs text-[#8A877E]">{isExpanded ? 'Hide details' : 'View details'}</span>
+                  </button>
+                  {isExpanded && (
+                    <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-white border-t border-[#E0DDD5]">
+                      <div><p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#8A877E]">Yield</p><p className="font-display font-bold text-xl mt-1">{bYield}</p></div>
+                      <div><p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#8A877E]">Labor/Unit</p><p className="font-display font-bold text-xl mt-1 text-[#0028A8]">₹{lPerUnit}</p></div>
+                      <div><p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#8A877E]">Mat/Unit</p><p className="font-display font-bold text-xl mt-1 text-[#E84824]">₹{mPerUnit}</p></div>
+                      <div><p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#8A877E]">Hours/Unit</p><p className="font-display font-bold text-xl mt-1 text-[#2E8540]">{hPerUnit}h</p></div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
       <div className="grid md:grid-cols-3 gap-6">
         <div className="border border-[#E0DDD5] bg-white p-6 md:col-span-2" data-testid="today-snapshot">
@@ -630,7 +680,9 @@ function BatchesManagementView({ items, batches, setBatches }) {
   const [itemId, setItemId] = useState("");
   const [batchNumber, setBatchNumber] = useState("");
   const [yieldCount, setYieldCount] = useState(100);
+  const [materialCost, setMaterialCost] = useState("");
   const [startDate, setStartDate] = useState(TODAY);
+  const [remark, setRemark] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState({});
 
@@ -641,15 +693,17 @@ function BatchesManagementView({ items, batches, setBatches }) {
     if (!itemId) return alert("Select an item.");
     const bn = batchNumber.toUpperCase().trim();
     if (!bn) return;
-    setBatches([{ id: "batch_" + Date.now(), itemId, batchNumber: bn, yieldCount: Number(yieldCount), status: "Active", startDate, endDate: "" }, ...batches]);
+    setBatches([{ id: "batch_" + Date.now(), itemId, batchNumber: bn, yieldCount: Number(yieldCount), materialCost: Number(materialCost) || 0, status: "Active", startDate, endDate: "", remark: remark.trim() }, ...batches]);
     setBatchNumber("");
+    setMaterialCost("");
+    setRemark("");
   };
   const cycle = (b) => {
     const next = b.status === "Active" ? "Only Packing Pending" : b.status === "Only Packing Pending" ? "Completed" : "Active";
     setBatches(batches.map(x => x.id === b.id ? { ...x, status: next, endDate: next === "Completed" ? TODAY : x.endDate } : x));
   };
   const beginEdit = (b) => { setEditingId(b.id); setDraft({ ...b }); };
-  const save = () => { setBatches(batches.map(b => b.id === editingId ? { ...b, ...draft, yieldCount: Number(draft.yieldCount), batchNumber: (draft.batchNumber || "").toUpperCase().trim() } : b)); setEditingId(null); };
+  const save = () => { setBatches(batches.map(b => b.id === editingId ? { ...b, ...draft, yieldCount: Number(draft.yieldCount), materialCost: Number(draft.materialCost) || 0, batchNumber: (draft.batchNumber || "").toUpperCase().trim() } : b)); setEditingId(null); };
   const remove = (id) => { if (window.confirm("Remove this batch?")) setBatches(batches.filter(b => b.id !== id)); };
 
   return (
@@ -672,13 +726,15 @@ function BatchesManagementView({ items, batches, setBatches }) {
             <div><Label>Target yield</Label><FieldInput type="number" value={yieldCount} onChange={e => setYieldCount(Number(e.target.value))} required className="font-mono no-spin" data-testid="batch-yield-input" /></div>
             <div><Label>Start date</Label><FieldInput type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required data-testid="batch-start-input" /></div>
           </div>
+          <div><Label>Material Cost (₹)</Label><FieldInput type="number" value={materialCost} onChange={e => setMaterialCost(e.target.value)} placeholder="0.00" className="font-mono no-spin" data-testid="batch-material-cost-input" /></div>
+          <div><Label>Remark</Label><FieldInput value={remark} onChange={e => setRemark(e.target.value)} placeholder="e.g. Red, Leather, XL" data-testid="batch-remark-input" /></div>
           <Btn type="submit" tone="ink" className="w-full" testid="batch-submit"><Plus size={14} /> Deploy batch</Btn>
         </form>
         <div className="border border-[#E0DDD5] bg-white xl:col-span-2 overflow-x-auto" data-testid="batches-table">
           <table className="w-full text-left">
             <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5]">
               <tr className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#8A877E]">
-                <th className="p-3">Batch</th><th className="p-3">Item</th><th className="p-3 text-right">Yield</th><th className="p-3">Bounds</th><th className="p-3">State</th><th className="p-3">Actions</th>
+                <th className="p-3">Batch</th><th className="p-3">Item</th><th className="p-3">Remark</th><th className="p-3 text-right">Yield</th><th className="p-3">Bounds</th><th className="p-3">State</th><th className="p-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E0DDD5]">
@@ -686,7 +742,11 @@ function BatchesManagementView({ items, batches, setBatches }) {
                 <tr key={b.id} className="bg-[#0028A8]/5">
                   <td className="p-3"><FieldInput value={draft.batchNumber} onChange={e => setDraft({ ...draft, batchNumber: e.target.value })} className="font-mono uppercase" /></td>
                   <td className="p-3"><FieldSelect value={draft.itemId} onChange={e => setDraft({ ...draft, itemId: e.target.value })}>{items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</FieldSelect></td>
-                  <td className="p-3"><FieldInput type="number" value={draft.yieldCount} onChange={e => setDraft({ ...draft, yieldCount: e.target.value })} className="font-mono text-right no-spin" /></td>
+                  <td className="p-3"><FieldInput value={draft.remark || ""} onChange={e => setDraft({ ...draft, remark: e.target.value })} placeholder="Remark" data-testid="batch-edit-remark-input" /></td>
+                  <td className="p-3 space-y-1">
+                    <FieldInput type="number" value={draft.yieldCount} onChange={e => setDraft({ ...draft, yieldCount: e.target.value })} className="font-mono text-right no-spin" placeholder="Yield" />
+                    <FieldInput type="number" value={draft.materialCost} onChange={e => setDraft({ ...draft, materialCost: e.target.value })} className="font-mono text-right no-spin" placeholder="Mat Cost" />
+                  </td>
                   <td className="p-3 space-y-1"><FieldInput type="date" value={draft.startDate} onChange={e => setDraft({ ...draft, startDate: e.target.value })} /><FieldInput type="date" value={draft.endDate} onChange={e => setDraft({ ...draft, endDate: e.target.value })} /></td>
                   <td className="p-3 font-mono text-xs">{draft.status}</td>
                   <td className="p-3"><div className="flex gap-1.5"><Btn tone="primary" onClick={save} className="!px-2.5 !py-1.5"><Save size={12} /></Btn><Btn tone="paper" onClick={() => setEditingId(null)} className="!px-2.5 !py-1.5"><X size={12} /></Btn></div></td>
@@ -695,6 +755,7 @@ function BatchesManagementView({ items, batches, setBatches }) {
                 <tr key={b.id} className="hover:bg-[#F4F3EF] transition-colors" data-testid={`batch-row-${b.id}`}>
                   <td className="p-3 font-mono font-bold text-[#0028A8]">{b.batchNumber}</td>
                   <td className="p-3 font-display font-bold">{itemName(b.itemId)}</td>
+                  <td className="p-3 font-mono text-xs text-[#8A877E]">{b.remark || "—"}</td>
                   <td className="p-3 font-mono text-right">{b.yieldCount} pcs</td>
                   <td className="p-3 font-mono text-[11px] text-[#8A877E]">{b.startDate} → {b.endDate || "running"}</td>
                   <td className="p-3"><button onClick={() => cycle(b)} data-testid={`batch-cycle-${b.id}`}><Pill tone={b.status === "Active" ? "success" : b.status === "Only Packing Pending" ? "warn" : "default"}>{b.status}</Pill></button></td>
@@ -704,7 +765,7 @@ function BatchesManagementView({ items, batches, setBatches }) {
                   </div></td>
                 </tr>
               ))}
-              {batches.length === 0 && <tr><td colSpan={6} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No open batches. Use the form to deploy one.</td></tr>}
+              {batches.length === 0 && <tr><td colSpan={7} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No open batches. Use the form to deploy one.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1126,7 +1187,7 @@ function JobCardsWorkspaceView({ currentWorker, currentAdmin, employees, items, 
                   <div><Label dark={dark}>2 · Active batch</Label>
                     <FieldSelect dark={dark} value={batchId} onChange={e => setBatchId(e.target.value)} disabled={!selectedItemId} data-testid="batch-select">
                       <option value="">— Choose batch —</option>
-                      {batchesForSelectedItem.map(b => <option key={b.id} value={b.id}>{b.batchNumber} [{b.status}]</option>)}
+                      {batchesForSelectedItem.map(b => <option key={b.id} value={b.id}>{b.batchNumber}{b.remark ? ` (${b.remark})` : ''} [{b.status}]</option>)}
                     </FieldSelect>
                   </div>
                   <div><Label dark={dark}>3 · Type of work</Label>
@@ -1381,12 +1442,15 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
   });
 
   const exportCSV = () => {
-    const headers = ["Batch Number", "Item", "Yield Count", "Start Date", "End Date", "Status", "Gross Labor Cost (₹)", "Piece Cost (₹)"];
+    const headers = ["Batch Number", "Item", "Remark", "Yield Count", "Start Date", "End Date", "Status", "Gross Labor Cost (₹)", "Material Cost (₹)", "Total Cost (₹)", "Labor Cost per Unit (₹)", "Material Cost per Unit (₹)"];
     const rows = [headers.join(",")];
     filteredBatches.forEach(b => {
-      const total = closed.filter(j => j.batchId === b.id).reduce((s, c) => s + (c.calculatedCost || 0), 0);
-      const piece = b.yieldCount > 0 ? (total / b.yieldCount).toFixed(2) : "0.00";
-      rows.push([`"${b.batchNumber}"`, `"${itemName(b.itemId)}"`, b.yieldCount, b.startDate, `"${b.endDate || "Running"}"`, `"${b.status}"`, total.toFixed(2), piece].join(","));
+      const totalLabor = closed.filter(j => j.batchId === b.id).reduce((s, c) => s + (c.calculatedCost || 0), 0);
+      const matCost = b.materialCost || 0;
+      const totalCost = totalLabor + matCost;
+      const pieceLabor = b.yieldCount > 0 ? (totalLabor / b.yieldCount).toFixed(2) : "0.00";
+      const pieceMat = b.yieldCount > 0 ? (matCost / b.yieldCount).toFixed(2) : "0.00";
+      rows.push([`"${b.batchNumber}"`, `"${itemName(b.itemId)}"`, `"${b.remark || ""}"`, b.yieldCount, b.startDate, `"${b.endDate || "Running"}"`, `"${b.status}"`, totalLabor.toFixed(2), matCost.toFixed(2), totalCost.toFixed(2), pieceLabor, pieceMat].join(","));
     });
     const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1688,27 +1752,34 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
             <table className="w-full text-left">
               <thead className="bg-[#F4F3EF] border-b border-[#E0DDD5]">
                 <tr className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#8A877E]">
-                  <th className="p-3">Batch</th><th className="p-3">Item</th><th className="p-3 text-right">Yield</th><th className="p-3">Start</th><th className="p-3">State</th><th className="p-3 text-right">Gross</th><th className="p-3 text-right">Per piece</th>
+                  <th className="p-3">Batch</th><th className="p-3">Item</th><th className="p-3">Remark</th><th className="p-3 text-right">Yield</th><th className="p-3">Start</th><th className="p-3">State</th><th className="p-3 text-right">Labor Cost</th><th className="p-3 text-right">Material Cost</th><th className="p-3 text-right">Total Cost</th><th className="p-3 text-right">Labor/unit</th><th className="p-3 text-right">Mat/unit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E0DDD5]">
                 {filteredBatches.map(b => {
                   const m = closed.filter(j => j.batchId === b.id);
-                  const t = m.reduce((s, c) => s + (c.calculatedCost || 0), 0);
-                  const u = b.yieldCount > 0 ? (t / b.yieldCount).toFixed(2) : "0.00";
+                  const tLabor = m.reduce((s, c) => s + (c.calculatedCost || 0), 0);
+                  const tMat = b.materialCost || 0;
+                  const tTotal = tLabor + tMat;
+                  const uLabor = b.yieldCount > 0 ? (tLabor / b.yieldCount).toFixed(2) : "0.00";
+                  const uMat = b.yieldCount > 0 ? (tMat / b.yieldCount).toFixed(2) : "0.00";
                   return (
                     <tr key={b.id} className="hover:bg-[#F4F3EF]">
                       <td className="p-3 font-mono font-bold text-[#0028A8]">{b.batchNumber}</td>
                       <td className="p-3 font-display font-bold">{itemName(b.itemId)}</td>
+                      <td className="p-3 font-mono text-xs text-[#8A877E]">{b.remark || "—"}</td>
                       <td className="p-3 font-mono text-right">{b.yieldCount}</td>
                       <td className="p-3 font-mono text-xs text-[#8A877E]">{b.startDate}</td>
                       <td className="p-3"><Pill tone={b.status === "Active" ? "success" : b.status === "Only Packing Pending" ? "warn" : "default"}>{b.status}</Pill></td>
-                      <td className="p-3 font-mono text-right font-bold">₹{t.toFixed(2)}</td>
-                      <td className="p-3 font-mono text-right font-black text-[#2E8540]">₹{u}</td>
+                      <td className="p-3 font-mono text-right text-[#8A877E]">₹{tLabor.toFixed(2)}</td>
+                      <td className="p-3 font-mono text-right text-[#8A877E]">₹{tMat.toFixed(2)}</td>
+                      <td className="p-3 font-mono text-right font-bold">₹{tTotal.toFixed(2)}</td>
+                      <td className="p-3 font-mono text-right font-black text-[#2E8540]">₹{uLabor}</td>
+                      <td className="p-3 font-mono text-right font-black text-[#E84824]">₹{uMat}</td>
                     </tr>
                   );
                 })}
-                {filteredBatches.length === 0 && <tr><td colSpan={7} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No batches match the query.</td></tr>}
+                {filteredBatches.length === 0 && <tr><td colSpan={11} className="p-6 text-center font-mono text-xs italic text-[#8A877E]">No batches match the query.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -1763,7 +1834,7 @@ function FinancialReportsView({ jobCards, setJobCards, items, batches, employees
                 <div className="flex flex-wrap justify-between items-start gap-4 border-b border-[#E0DDD5] pb-3">
                   <div>
                     <h4 className="font-display font-black text-2xl tracking-tighter">{itemName(b.itemId)}</h4>
-                    <p className="font-mono text-xs text-[#8A877E] mt-1">{b.batchNumber} · {b.startDate} → {b.endDate || "Running"}</p>
+                    <p className="font-mono text-xs text-[#8A877E] mt-1">{b.batchNumber}{b.remark ? ` (${b.remark})` : ''} · {b.startDate} → {b.endDate || "Running"}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-[#8A877E]">Labor ledger</p>
