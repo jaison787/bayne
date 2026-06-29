@@ -624,7 +624,7 @@ function ItemsManagementView({ items, setItems, batches }) {
       : "Remove this item?";
     if (window.confirm(msg)) setItems(items.filter(i => i.id !== id));
   };
-  const batchCountFor = (id) => batches.filter(b => b.itemId === id).length;
+  const batchCountFor = (id) => batches.filter(b => b.itemId === id && b.status !== "Completed").length;
 
   return (
     <div className="space-y-8" data-testid="items-view">
